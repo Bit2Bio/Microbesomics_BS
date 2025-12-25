@@ -1,0 +1,123 @@
+---
+title: "microbesomics"
+output: html_document
+date: "2024-01-06"
+---
+```{r}
+#Import Librerie
+library(Microsoft365R)
+library(microbiomeMarker)
+library(phyloseq)
+library(xlsx)
+library(reticulate)
+use_condaenv("python_env")
+
+py_run_string("
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as sm
+import pingouin as ping           
+")
+
+```
+
+
+Import Metadata
+```{r}
+ps_filt = readRDS("../data/metagenomics/ps_filt.rds")
+sampleDt = readRDS("../data/clinics/SmpDtMetSRiskFactors.rds")
+Varfeatures = read.xlsx("../data/clinics/Copia di Microobesomics_clinical data IGA 260324_LA.xlsx", check.names = F, row.names = 1, sheetName = "Features")
+```
+
+```{r}
+py_run_string("
+sampleDt = r.sampleDt
+features = r.Varfeatures
+
+Included = features.loc[features.Include == 'S',:]
+Cont = Included.loc[Included.Type == 'Continuous',:].index
+
+ContDt = sampleDt.loc[:,sampleDt.columns.isin(Cont)]
+ContDt = ContDt.apply(pd.to_numeric)
+
+missing = ContDt.isna().sum()
+nTot = len(ContDt.index) - missing
+Mean = ContDt.mean()
+StdDev = ContDt.std()
+
+summary_Cont = pd.DataFrame({    'n': nTot, 'missing': missing, 'mean': Mean, 'StDev': StdDev})
+summary_Cont.to_excel('../results/clinics' + '/' +  'Descrittiva Variabili Continue.xlsx')
+")
+```
+
+Analisi Descrittiva Variabili Continue
+```{python}
+# sampleDt = r.sampleDt
+# features = r.Varfeatures
+# 
+# Included = features.loc[features.Include == "S",:]
+# Cont = Included.loc[Included.Type == "Continuous",:].index
+# 
+# ContDt = sampleDt.loc[:,sampleDt.columns.isin(Cont)]
+# ContDt = ContDt.apply(pd.to_numeric)
+# 
+# missing = ContDt.isna().sum()
+# nTot = len(ContDt.index) - missing
+# Mean = ContDt.mean()
+# StdDev = ContDt.std()
+# 
+# summary_Cont = pd.DataFrame({    'n': nTot, 'missing': missing, 'mean': Mean, 'StDev': StdDev})
+# summary_Cont.to_excel(r.percorso_cartella + "/" +  "Descrittiva Variabili Continue.xlsx")
+```
+
+```{r}
+py_run_string("
+sampleDt = r.sampleDt
+features = r.Varfeatures
+Included = features.loc[features.Include == 'S',:]
+Cat = Included.loc[Included.Type == 'Categorical',:].index
+catDt = sampleDt.loc[:,sampleDt.columns.isin(Cat)]
+")
+```
+
+
+Analisi Descrittiva variabili Categoriche
+```{python}
+# sampleDt = r.sampleDt
+# features = r.Varfeatures
+# Included = features.loc[features.Include == "S",:]
+# Cat = Included.loc[Included.Type == "Categorical",:].index
+# catDt = sampleDt.loc[:,sampleDt.columns.isin(Cat)]
+```
+
+Analisi Descrittiva variabili Categoriche
+```{r}
+CatDt = py$catDt
+n = c()
+missing = c()
+mean = c()
+stDev = c()
+varName = c()
+for (col in colnames(CatDt)) {
+  
+  varName = append(varName, col)
+  tmpCatDt  = CatDt[!is.na(CatDt[,col]),]
+  n = append(n, nrow(tmpCatDt))
+  missing = append(missing, (nrow(CatDt) - nrow(tmpCatDt)))
+  
+  tmpCatDt1 = tmpCatDt[ tmpCatDt[,col] == "1",]
+  
+  mean = append(mean, (nrow(tmpCatDt1) / nrow(tmpCatDt))*100)
+  stDev = append(stDev, NA)
+}
+
+
+resCat = cbind(n, missing, mean, stDev)
+row.names(resCat) = varName
+write.xlsx(resCat, paste0("../results/clinics/Descrittiva Variabili Categoriche.xlsx"))
+```
+
+
+
+
+

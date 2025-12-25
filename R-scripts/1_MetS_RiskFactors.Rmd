@@ -1,0 +1,241 @@
+---
+title: "Microbesomics - MetS Metagenomic Signature"
+output: html_document
+---
+
+```{r}
+#source("Import.R")
+ps_filt = readRDS("../data/metagenomics/ps_filt.rds")
+sampleDt = readRDS("../data/clinics/sampleDt.rds")
+mtbDt = readRDS("../data/metabolomics/mtbDt.rds")
+
+data_orario <- format(Sys.time(), "%d-%m-%Y")
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, results="asis")
+```
+
+```{r}
+#Import librerie R
+library(ggplot2)
+library(DESeq2)
+library(vegan)
+library(ggVennDiagram)
+require(gridExtra)
+library(openxlsx)
+library(UpSetR)
+library(ComplexUpset)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(ComplexHeatmap)
+library(circlize)
+library(Microsoft365R)
+library(microbiomeMarker)
+library(phyloseq)
+library(xlsx)
+library(reticulate)
+use_condaenv("python_env")
+library(knitr)
+library(writexl)
+
+py_run_string("
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as sm
+import pingouin as ping           
+")
+```
+
+Export Picrust2
+```{r}
+# expPath = "Microbesomics_MetS_n177_BatchSexAgeAdjusted20-03-2025/ExportPicrust2/"
+# dir.create(expPath)
+# 
+# upASV = py$intsAsv
+# otutab<-as(otu_table(ps_filt),"matrix")
+# otutab = otutab[row.names(otutab) %in% upASV,]
+# 
+# picrUps =  merge_phyloseq(otu_table(otutab, taxa_are_rows = T), tax_table(ps_filt), phy_tree(ps_filt), refseq(ps_filt), sample_data(sampleDt))
+# 
+# tax = tax_table(picrUps)
+# tax<-as.data.frame(tax)
+# tax_cols <- colnames(tax)
+# tax$taxonomy<-do.call(paste, c(tax[tax_cols], sep=";"))
+# for(co in tax_cols) tax[co]<-NULL
+# write.table(tax, paste0(expPath,"tax.txt"), quote=FALSE, col.names=FALSE, sep="\t")
+# 
+# write.table(otu_table(picrUps), paste0(expPath,"otu_tab.txt"), sep = "\t")
+# 
+# picrUps %>%
+# refseq() %>%
+# Biostrings::writeXStringSet(paste0(expPath,"asv.fna"), append=FALSE,
+# compress=FALSE, compression_level=NA, format="fasta")
+```
+
+```{r}
+#Per Gestire il problema dei NA li sostitutiamo con "unknown"
+
+smpDt = data.frame(sample_data(ps_filt))
+
+smpDt$HYP_drug1[is.na(smpDt$HYP_drug1)] <- "unknown"
+smpDt$HYP_drug2[is.na(smpDt$HYP_drug2)] <- "unknown"
+smpDt$HYP_drug3[is.na(smpDt$HYP_drug3)] <- "unknown"
+smpDt$HYP_drug4[is.na(smpDt$HYP_drug4)] <- "unknown"
+smpDt$HYP_drug5[is.na(smpDt$HYP_drug5)] <- "unknown"
+
+smpDt$DYSL_drug1[is.na(smpDt$DYSL_drug1)] <- "unknown"
+smpDt$DYSL_drug2[is.na(smpDt$DYSL_drug2)] <- "unknown"
+smpDt$DYSL_drug3[is.na(smpDt$DYSL_drug3)] <- "unknown"
+
+#smpDt$glucose_0[is.na(smpDt$glucose_0)] <- "unknown"
+
+smpDt$"HyperglicemiaMetS"= NA
+smpDt$"TrygliceridesMetS" = NA
+smpDt$"HypertensionMets" = NA
+smpDt$"AbdominalObesityMetS" = NA
+smpDt$"HDL_MetS" = NA
+```
+
+**MetS Risk factors - Criteria Utilized** <br> <button class="btn btn-primary" data-toggle="collapse" data-target="#cella2">Expand/Collapse</button>
+
+::: {#cella2 .collapse}
+```{r echo=TRUE}
+# Assegna 0 ai restanti
+smpDt$HyperglicemiaMetS[!(smpDt$glucose_0 > 100 | smpDt$diabetes == 1)] <- 0
+
+#Hyperglicemia
+# Assegna 1 ai soggetti con glicemia a digiuno > 100 o diabetici
+smpDt$HyperglicemiaMetS[smpDt$glucose_0 > 100 | smpDt$diabetes == 1] <- 1
+
+#Se glucose_0 è NA ma la d
+smpDt$HyperglicemiaMetS[(is.na(smpDt$HyperglicemiaMetS) & (smpDt$diabetes == 1))] <- 1
+smpDt$HyperglicemiaMetS[(is.na(smpDt$HyperglicemiaMetS) & (smpDt$diabetes == 0))] <- 0
+
+
+
+#Abdominal Obesity
+# Assegna 1 ai soggetti con Waist > 94 e sex = 0 
+smpDt$AbdominalObesityMetS[smpDt$waist > 94 & smpDt$sex == 0] <- 1
+# Assegna 1 ai soggetti con Waist < 94 e sex = 0 
+smpDt$AbdominalObesityMetS[smpDt$waist <= 94 & smpDt$sex == 0] <- 0
+
+# Assegna 1 ai soggetti con Waist > 80 e sex = 1 
+smpDt$AbdominalObesityMetS[smpDt$waist > 80 & smpDt$sex == 1] <- 1
+# Assegna 1 ai soggetti con Waist < 80 e sex = 1 
+smpDt$AbdominalObesityMetS[smpDt$waist <= 80 & smpDt$sex == 1] <- 0
+
+
+#Hypertension
+#Abdominal Obesity
+# Assegna 1 ai soggetti con ((sbp > 130 o dbp < 85) e sex = 0) o (HypDrug1-2-3 = 1) 
+smpDt$HypertensionMets[((smpDt$sbp > 130 | smpDt$dbp > 85) | (smpDt$HYP_drug1 == 1 | smpDt$HYP_drug2 == 1 | smpDt$HYP_drug3 == 1 |
+                                                              smpDt$HYP_drug4 == 1 | smpDt$HYP_drug5 == 1))] <- 1
+# Assegna 0 agli altri
+smpDt$HypertensionMets[((smpDt$sbp <= 130 & smpDt$dbp < 85) & (smpDt$HYP_drug1 != 1 & smpDt$HYP_drug2 != 1 & smpDt$HYP_drug3 != 1 &
+                                                              smpDt$HYP_drug4 != 1 & smpDt$HYP_drug5 != 1))] <- 0
+
+#HDL-CholesterolMetS
+# Assegna 1 ai soggetti con (HDL < 40 e sex = 0) o (DyslDrug1-2-3 = 1) 
+smpDt$HDL_MetS[((smpDt$HDL < 40 & smpDt$sex == 0) | (smpDt$DYSL_drug1 == 1 | smpDt$DYSL_drug2 == 1 | smpDt$DYSL_drug3 == 1))] <- 1
+# Assegna 0 ai soggetti con (HDL > 40 e sex = 0) o (DyslDrug1-2-3 = 1) 
+smpDt$HDL_MetS[((smpDt$HDL >= 40 & smpDt$sex == 0) & (smpDt$DYSL_drug1 != 1 & smpDt$DYSL_drug2 != 1 & smpDt$DYSL_drug3 != 1))] <- 0
+
+# Assegna 1 ai soggetti con (HDL < 50 e sex = 1) o (DyslDrug1-2-3 = 1) 
+smpDt$HDL_MetS[((smpDt$HDL < 50 & smpDt$sex == 1) | (smpDt$DYSL_drug1 == 1 | smpDt$DYSL_drug2 == 1 | smpDt$DYSL_drug3 == 1))] <- 1
+# Assegna 0 ai soggetti con (HDL < 50 e sex = 1) o (DyslDrug1-2-3 = 1) 
+smpDt$HDL_MetS[((smpDt$HDL >= 50 & smpDt$sex == 1) & (smpDt$DYSL_drug1 != 1 & smpDt$DYSL_drug2 != 1 & smpDt$DYSL_drug3 != 1))] <- 0
+
+
+
+#Tryglicerides
+# Assegna 1 ai soggetti con (Tryglicerides < 40 e sex = 0) o (DyslDrug1-2-3 = 1) 
+smpDt$TrygliceridesMetS[((smpDt$triglycerides > 150) | (smpDt$DYSL_drug1 == 1 | smpDt$DYSL_drug2 == 1 | smpDt$DYSL_drug3 == 1))] <- 1
+# Assegna 0 ai soggetti con (HDL > 40 e sex = 0) o (DyslDrug1-2-3 = 1) 
+smpDt$TrygliceridesMetS[!((smpDt$triglycerides > 150) & (smpDt$DYSL_drug1 != 1 & smpDt$DYSL_drug2 != 1 & smpDt$DYSL_drug3 != 1 ))] <- 0
+
+#Definizione Sindrome metabolica
+variables <- c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS")
+
+smpDt$"MetS" = 0
+smpDt$MetS[rowSums(smpDt[, variables]) >=2] = 1
+```
+:::
+
+```{r}
+#Selezioniamo i pazienti per cui sono presenti NA nelle variabil della MetS
+HyperglicemyMissing = (smpDt[is.na(smpDt$HyperglicemiaMetS),c("glucose_0", "diabetes") ])
+HyperglicemyMissing2 = (smpDt[is.na(smpDt$glucose_0),c("glucose_0", "diabetes") ])
+HyperglicemyMissing = rbind(HyperglicemyMissing, HyperglicemyMissing2)
+# AbdominalObesityMetSMissing = (smpDt[is.na(smpDt$AbdominalObesityMetS), ])
+HypertensionMetsMissing = (smpDt[is.na(smpDt$HypertensionMets), c("HypertensionMets","sbp", "dbp", "HYP_drug1", "HYP_drug2", 
+                                                                  "HYP_drug3", "HYP_drug4", "HYP_drug5" )])
+
+HDL_MetSMissing = (smpDt[is.na(smpDt$HDL_MetS), c("HDL_MetS", "HDL", "sex", "DYSL_drug1", "DYSL_drug2", "DYSL_drug3" )])
+TrygliceridesMetSMissing = (smpDt[is.na(smpDt$TrygliceridesMetS),c("TrygliceridesMetS", "triglycerides","DYSL_drug1", "DYSL_drug2", "DYSL_drug3" ) ])
+
+
+missings = list("HyperglicemiaMetS" = HyperglicemyMissing,
+             "HypertensionMets" = HypertensionMetsMissing,
+             "HDL_MetS" = HDL_MetSMissing,
+             "TrygliceridesMetS" = TrygliceridesMetSMissing
+             )
+
+for (var in names(missings)) {
+  missings[[var]][is.na(missings[[var]])] <- "unknown"
+  missings[[var]] = as.data.frame(missings[[var]])
+}
+missings[["sampleData"]] = smpDt
+openxlsx::write.xlsx(missings, file = "../results/MetS_RiskFactors/MetS_RisksFactors.xlsx", overwrite = TRUE)
+```
+
+```{r include=FALSE}
+library(ggplot2)
+# Lista delle variabili da plottare
+variables <- c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS")
+# Creazione di una lista vuota per salvare i grafici
+plots <- list()
+
+# Creazione e salvataggio dei grafici
+#for (var in variables) {
+   a <-(ggplot(smpDt, aes(x = factor(smpDt[,"HyperglicemiaMetS"]))) +  geom_bar(fill = "steelblue") + labs( x = paste("HyperglicemiaMetS", "(0 = No, 1 = Yes)"), y = "Abs Freq") +theme_minimal())
+   b <-(ggplot(smpDt, aes(x = factor(smpDt[,"TrygliceridesMetS"]))) +  geom_bar(fill = "steelblue") + labs( x = paste("TrygliceridesMetS", "(0 = No, 1 = Yes)"), y = "Abs Freq") +theme_minimal())
+   c <-(ggplot(smpDt, aes(x = factor(smpDt[,"HypertensionMets"]))) +  geom_bar(fill = "steelblue") + labs( x = paste("HypertensionMets", "(0 = No, 1 = Yes)"), y = "Abs Freq") +theme_minimal())
+   d <-(ggplot(smpDt, aes(x = factor(smpDt[,"HDL_MetS"]))) +  geom_bar(fill = "steelblue") + labs( x = paste("HDL_MetS", "(0 = No, 1 = Yes)"), y = "Abs Freq") +theme_minimal())
+ # }
+# Impostare il layout per disporre i grafici in 2 righe e 2 colonne
+
+distrName = paste0("../results/MetS_RiskFactors","/","DistribuzioniCampioni.png")
+png(distrName,width = 1600, height = 1000, res = 200)
+(grid.arrange(a,b,c,d, ncol = 2))
+dev.off()
+```
+
+<br> **MetS Variables Distribution**
+```{r}
+include_graphics(distrName)
+```
+
+<br> **Subjects Excluded For each MetS Variable** <br> <button class="btn btn-primary" data-toggle="collapse" data-target="#cella3">Expand/Collapse</button>
+
+::: {#cella3 .collapse}
+```{r}
+for (var in variables) {
+  print(var)
+  print(kable(missings[[var]]))
+  cat("\n")
+  # Stampa ogni grafico
+}
+```
+:::
+
+
+
+```{r}
+#Export sampleData aggiornato
+saveRDS(smpDt, "../data/clinics/SmpDtMetSRiskFactors.rds")
+```
+
+
+

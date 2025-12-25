@@ -1,0 +1,12 @@
+# Ignora tutto
+*
+
+# Ignora file temporanei OVUNQUE
+~lock.*
+.~lock.*
+*#
+
+# Ma NON ignorare queste
+!.gitignore
+!R-scripts/
+!R-scripts/**

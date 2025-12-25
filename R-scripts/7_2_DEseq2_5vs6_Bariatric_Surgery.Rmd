@@ -1,0 +1,717 @@
+---
+title: "Microbesomics - MetS Metagenomic Signature"
+output: html_document
+---
+
+
+```{r}
+#Import librerie R
+library(ggplot2)
+library(DESeq2)
+library(vegan)
+library(ggVennDiagram)
+require(gridExtra)
+library(openxlsx)
+library(UpSetR)
+library(ComplexUpset)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(ComplexHeatmap)
+library(circlize)
+library(Microsoft365R)
+library(microbiomeMarker)
+library(phyloseq)
+library(xlsx)
+library(reticulate)
+use_condaenv("python_env")
+library(knitr)
+library(writexl)
+
+py_run_string("
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as sm
+import pingouin as ping           
+")
+```
+
+
+
+```{r}
+#source("Import.R")
+ps_filt = readRDS("../data/metagenomics/ps_filt5vs6.rds")
+sampleDt = readRDS("../data/clinics/sampleDt5vs6.rds")
+sampleDt$groupIGA = sampleDt$`GROUP IGA`
+sampleDt$pzID = as.factor(sampleDt$pz)
+toKeep = (table(sampleDt$pzID) == 2)
+toKeep = names(toKeep[toKeep ==  TRUE])
+sampleDt = sampleDt[sampleDt$pzID %in% toKeep,]
+row.names(sampleDt)
+
+ps_filt <- prune_samples(
+  sample_names(ps_filt) %in% rownames(sampleDt),
+  ps_filt
+)
+
+mtbDt = readRDS("../data/metabolomics/mtbDt5vs6.rds")
+data_orario <- format(Sys.time(), "%d-%m-%Y")
+
+mtbDt = mtbDt[row.names(mtbDt) %in% row.names(sampleDt),]
+saveRDS(mtbDt, file = "../data/metabolomics/mtbDt5vs6_Pz_adjusted.rds")
+saveRDS(sampleDt, file = "../data/metabolomics/smpDt5vs6_Pz_adjusted.rds")
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, results="asis")
+```
+
+
+<br> **Codice DEseq2 (Associazioni variabili MetS - Metagenomica)**<br> <button class="btn btn-primary" data-toggle="collapse" data-target="#cella4">Expand/Collapse</button>
+
+::: {#cella4 .collapse}
+```{r echo=TRUE}
+#Associazioni delle 7 Variabili in esame con Metagenomica by DEseq2
+  sample_data(ps_filt) = sample_data(sampleDt)
+  #ps_filt = merge_phyloseq(ps_filt, sample_data(sampleDt))
+  sample_data(ps_filt)$groupIGA <- as.factor(sample_data(ps_filt)$groupIGA)
+  sample_data(ps_filt)$pzID <- as.factor(sample_data(ps_filt)$pz)
+
+
+  ps.filt.DESeq = ps_filt
+  otu_table(ps.filt.DESeq) = otu_table(ps.filt.DESeq) +1
+  #print(ps.filt.DESeq)
+  x = paste("~","pz", "+", "groupIGA")
+  my_formula = formula(x)
+  #print(col)
+  ps_filt.DEseq = phyloseq_to_deseq2(ps.filt.DESeq,  my_formula)
+  ps_filt.DEseq= estimateSizeFactors(ps_filt.DEseq)
+  ps_filt.DEseq= estimateDispersions(ps_filt.DEseq)
+  diagdds = DESeq(ps_filt.DEseq, test="Wald", fitType="parametric" )
+
+res <- results(diagdds,
+               contrast = c("groupIGA", "6", "5"),  # log2FC(1) - log2FC(2)
+               cooksCutoff = FALSE,
+               pAdjustMethod = "fdr")
+    
+    
+    
+  sigtab = as(res, "data.frame")
+  sigtab =cbind(as(sigtab, "data.frame"), tax_table(ps.filt.DESeq))
+  sigtab = as.data.frame(sigtab)
+
+  
+write.xlsx(sigtab, "../results/metagenomics/DEseq2/PrePostDiet/AnalisiComparativaMetagenomicaPrePostDieta.xlsx", sheetName = "1_vs_2")
+
+```
+
+
+```{r}
+ps.filt.DESeq = merge_phyloseq(otu_table(ps_filt), tax_table(ps_filt), sample_data(ps_filt))
+
+  
+  #ps.filt.DESeq = tax_glom(ps.filt.DESeq, taxrank = "Genus", NArm = T)
+  ps.filt.DESeq.cp = ps.filt.DESeq
+  otu_table(ps.filt.DESeq) = otu_table(ps.filt.DESeq) +1
+  #print(ps.filt.DESeq)
+  x = paste("~","pz", "+", "groupIGA")
+  my_formula = formula(x)
+  #print(col)
+  ps_filt.DEseq = phyloseq_to_deseq2(ps.filt.DESeq,  my_formula)
+  ps_filt.DEseq= estimateSizeFactors(ps_filt.DEseq)
+  NormCounts = counts(estimateSizeFactors(ps_filt.DEseq), normalized=TRUE)
+ 
+```
+
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+alpha <- 0.05
+
+df <- as.data.frame(sigtab)
+df$ASV     <- paste0(rownames(df))
+df$Phylum  <- ifelse(is.na(df$Phylum) | df$Phylum == "", "Unassigned", df$Phylum)
+df$Genus   <- ifelse(is.na(df$Genus)  | df$Genus  == "", NA, df$Genus)
+df$padj_safe <- ifelse(is.na(df$padj) | df$padj <= 0, 1e-300, df$padj)
+
+# etichetta: ASV + Genus (se presente) altrimenti ASV + Phylum
+df$label <- ifelse(is.na(df$Genus),
+                   paste0(df$ASV, "_", df$Phylum),
+                   paste0(df$ASV, "_", df$Genus))
+
+sig <- subset(df, padj_safe <= alpha)
+ns  <- subset(df, padj_safe >  alpha)
+
+p <- ggplot() +
+  # non significativi
+  geom_point(data = ns,
+             aes(x = log2FoldChange, y = -log10(padj_safe)),
+             color = "grey80", alpha = 0.6, size = 2) +
+  # significativi (colorati per Phylum)
+  geom_point(data = sig,
+             aes(x = log2FoldChange, y = -log10(padj_safe), color = Phylum),
+             alpha = 0.9, size = 3) +
+  # etichette solo per i significativi
+  ggrepel::geom_text_repel(
+    data = sig,
+    aes(x = log2FoldChange, y = -log10(padj_safe), label = label, color = Phylum),
+    size = 3, max.overlaps = 35, show.legend = FALSE
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "bottom")+
+  labs(
+    title = "",
+    x = "log2 fold change (Post vs Pre Bariatric Surgery)",
+    y = "-log10 adjusted p-value",
+    color = "Phylum"
+  )
+
+
+library(viridis)
+
+# 1. crea la palette fissa in base a TUTTI i phyla del tuo progetto
+all_phyla <- unique(df$Phylum)  # oppure da un dataset master
+n_phyla <- length(all_phyla)
+
+fixed_pal <- setNames(
+  viridis(n_phyla, option = "viridis"),  # scegli l’opzione
+  all_phyla
+)
+
+# 2. usa sempre questa palette nei plot
+p = p + scale_color_manual(values = fixed_pal)
+
+#p + scale_color_viridis_d(option = "viridis")
+# ggsave("volcano_taxa.png", p, width = 8, height = 6, dpi = 300)
+ggsave("../results/metagenomics/VolcanoPlotBariatricSurgery.png", p, width = 30, height = 25, units = "cm", dpi = 300)
+
+```
+
+
+Class
+```{r}
+p_class = plot_rel_abund_by_group(ps_filt, "groupIGA",top_n = 15, taxrank = "Class" )
+  p_class <- p_class +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 7, face = "bold"),
+    legend.text = element_text(size = 7)
+  ) +
+  guides(fill = guide_legend(
+    ncol = 1,                # due colonne
+    title.position = "top"   # <-- sposta "Genus" sopra la legenda
+  ))
+```
+
+Family
+```{r}
+p_family = plot_rel_abund_by_group(ps_filt, "groupIGA",top_n = 15, taxrank = "Family" )
+  p_family <- p_family +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 7, face = "bold"),
+    legend.text = element_text(size = 7)
+  ) +
+  guides(fill = guide_legend(
+    ncol = 1,                # due colonne
+    title.position = "top"   # <-- sposta "Genus" sopra la legenda
+  ))
+```
+
+Genus
+```{r}
+p_genus = plot_rel_abund_by_group(ps_filt, "groupIGA",top_n = 15, taxrank = "Genus" )
+  p_genus <- p_genus +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 7, face = "bold"),
+    legend.text = element_text(size = 7)
+  ) +
+  guides(fill = guide_legend(
+    ncol = 1,                # due colonne
+    title.position = "top"   # <-- sposta "Genus" sopra la legenda
+  ))
+```
+
+```{r}
+library(patchwork)
+
+pcomb = p_class + p_family + p_genus
+```
+
+
+
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+library(viridis)
+library(dplyr)
+
+alpha <- 0.05
+q_edge <- 0.70   # percentile: top 10% più estremi
+
+df <- as.data.frame(sigtab)
+df$ASV       <- paste0(rownames(df))
+df$Phylum    <- ifelse(is.na(df$Phylum) | df$Phylum == "", "Unassigned", df$Phylum)
+df$Genus     <- ifelse(is.na(df$Genus)  | df$Genus  == "", NA, df$Genus)
+df$padj_safe <- ifelse(is.na(df$padj) | df$padj <= 0, 1e-300, df$padj)
+
+# etichette: ASV + Genus se presente, altrimenti ASV + Phylum
+df$label <- ifelse(is.na(df$Genus),
+                   paste0(df$ASV, "_", df$Phylum),
+                   paste0(df$ASV, "_", df$Genus))
+
+sig <- subset(df, padj_safe <= alpha)
+ns  <- subset(df, padj_safe >  alpha)
+
+# selezione “bordi” → log2FC estremi o p-value molto bassi
+lfc_thr  <- quantile(abs(sig$log2FoldChange), q_edge, na.rm = TRUE)
+pval_thr <- quantile(-log10(sig$padj_safe),   q_edge, na.rm = TRUE)
+sig_edge <- sig %>%
+  filter(abs(log2FoldChange) >= lfc_thr | -log10(padj_safe) >= pval_thr)
+
+# palette fissa (usi sempre questa in ogni volcano plot)
+all_phyla <- sort(unique(df$Phylum))
+fixed_pal <- setNames(viridis(length(all_phyla), option = "viridis"), all_phyla)
+
+p <- ggplot() +
+  geom_point(data = ns,
+             aes(x = log2FoldChange, y = -log10(padj_safe)),
+             color = "grey80", alpha = 0.6, size = 2) +
+  geom_point(data = sig,
+             aes(x = log2FoldChange, y = -log10(padj_safe), color = Phylum),
+             alpha = 0.9, size = 3) +
+  ggrepel::geom_text_repel(
+    data = sig_edge,
+    aes(x = log2FoldChange, y = -log10(padj_safe), label = label, color = Phylum),
+    size = 3, max.overlaps = 30, show.legend = FALSE
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+  scale_color_manual(values = fixed_pal) +
+  theme_bw(base_size = 14) +
+  labs(
+    title = "Volcano plot of differential taxa",
+    x = "log2 fold change (Group1 vs Group2)",
+    y = "-log10 adjusted p-value",
+    color = "Phylum"
+  )
+
+p + scale_color_manual(values = fixed_pal)
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+
+alpha <- 0.05
+top_n <- 25   # <-- quanti taxa etichettare (cambia se vuoi)
+
+df <- as.data.frame(sigtab)
+df$ASV       <- paste0("asv_", rownames(df))
+df$Phylum    <- ifelse(is.na(df$Phylum) | df$Phylum == "", "Unassigned", df$Phylum)
+df$Genus     <- ifelse(is.na(df$Genus)  | df$Genus  == "", NA, df$Genus)
+df$padj_safe <- ifelse(is.na(df$padj) | df$padj <= 0, 1e-300, df$padj)
+
+# etichetta: ASV + Genus (se presente) altrimenti ASV + Phylum
+df$label <- ifelse(is.na(df$Genus),
+                   paste0(df$ASV, " - ", df$Phylum),
+                   paste0(df$ASV, " - ", df$Genus))
+
+sig <- subset(df, padj_safe <= alpha)
+ns  <- subset(df, padj_safe >  alpha)
+
+# ---- NEW: scegli solo i taxa da etichettare (più significativi e con |logFC| alto)
+sig_top <- sig %>%
+  arrange(padj_safe, desc(abs(log2FoldChange))) %>%
+  slice_head(n = min(top_n, nrow(sig)))
+
+p <- ggplot() +
+    # non significativi (grigi)
+    geom_point(data = ns,
+               aes(x = log2FoldChange, y = -log10(padj_safe)),
+               color = "grey80", alpha = 0.6, size = 2) +
+    # significativi (colorati per Phylum)
+    geom_point(data = sig,
+               aes(x = log2FoldChange, y = -log10(padj_safe), color = Phylum),
+               alpha = 0.9, size = 3) +
+    # etichette SOLO per i top selezionati (punti restano tutti colorati)
+    ggrepel::geom_text_repel(
+        data = sig_top,
+        aes(x = log2FoldChange, y = -log10(padj_safe), label = label, color = Phylum),
+        size = 3, max.overlaps = 25, show.legend = FALSE
+    ) +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+    scale_color_brewer(palette = "Dark2", na.value = "grey40") +   # colori invariati; evita “bianco”
+    theme_bw(base_size = 14) +
+    labs(
+        title = "Volcano plot of differential taxa",
+        x = "log2 fold change (Group1 vs Group2)",
+        y = "-log10 adjusted p-value",
+        color = "Phylum"
+    )
+
+p
+# ggsave("volcano_taxa.png", p, width = 8, height = 6, dpi = 300)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+alpha <- 0.05
+
+df <- as.data.frame(sigtab)
+df$ASV     <- paste0("asv_", rownames(df))
+df$Phylum  <- ifelse(is.na(df$Phylum) | df$Phylum == "", "Unassigned", df$Phylum)
+df$Genus   <- ifelse(is.na(df$Genus)  | df$Genus  == "", NA, df$Genus)
+df$padj_safe <- ifelse(is.na(df$padj) | df$padj <= 0, 1e-300, df$padj)
+
+# etichetta: ASV + Genus (se presente) altrimenti ASV + Phylum
+df$label <- ifelse(is.na(df$Genus),
+                   paste0(df$ASV, " - ", df$Phylum),
+                   paste0(df$ASV, " - ", df$Genus))
+
+sig <- subset(df, padj_safe <= alpha)
+ns  <- subset(df, padj_safe >  alpha)
+
+p <- ggplot() +
+  # non significativi
+  geom_point(data = ns,
+             aes(x = log2FoldChange, y = -log10(padj_safe)),
+             color = "grey80", alpha = 0.6, size = 2) +
+  # significativi (colorati per Phylum)
+  geom_point(data = sig,
+             aes(x = log2FoldChange, y = -log10(padj_safe), color = Phylum),
+             alpha = 0.9, size = 3) +
+  # etichette solo per i significativi
+  ggrepel::geom_text_repel(
+    data = sig,
+    aes(x = log2FoldChange, y = -log10(padj_safe), label = label, color = Phylum),
+    size = 3, max.overlaps = 25, show.legend = FALSE
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw(base_size = 14) +
+  labs(
+    title = "Volcano plot of differential taxa",
+    x = "log2 fold change (Group1 vs Group2)",
+    y = "-log10 adjusted p-value",
+    color = "Phylum"
+  )
+
+p
+# ggsave("volcano_taxa.png", p, width = 8, height = 6, dpi = 300)
+
+```
+
+```{r}
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+alpha <- 0.05
+
+df <- as.data.frame(sigtab)
+df$ASV     <- paste0(rownames(df))
+df$Phylum  <- ifelse(is.na(df$Phylum) | df$Phylum == "", "Unassigned", df$Phylum)
+df$Genus   <- ifelse(is.na(df$Genus)  | df$Genus  == "", NA, df$Genus)
+df$padj_safe <- ifelse(is.na(df$padj) | df$padj <= 0, 1e-300, df$padj)
+
+# etichetta: ASV + Genus (se presente) altrimenti ASV + Phylum
+df$label <- ifelse(is.na(df$Genus),
+                   paste0(df$ASV, "_", df$Phylum),
+                   paste0(df$ASV, "_", df$Genus))
+
+sig <- subset(df, padj_safe <= alpha)
+ns  <- subset(df, padj_safe >  alpha)
+
+p <- ggplot() +
+  # non significativi
+  geom_point(data = ns,
+             aes(x = log2FoldChange, y = -log10(padj_safe)),
+             color = "grey80", alpha = 0.6, size = 2) +
+  # significativi (colorati per Phylum)
+  geom_point(data = sig,
+             aes(x = log2FoldChange, y = -log10(padj_safe), color = Phylum),
+             alpha = 0.9, size = 3) +
+  # etichette solo per i significativi
+  ggrepel::geom_text_repel(
+    data = sig,
+    aes(x = log2FoldChange, y = -log10(padj_safe), label = label, color = Phylum),
+    size = 3, max.overlaps = 25, show.legend = FALSE
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw(base_size = 14) +
+  labs(
+    title = "Volcano plot of differential taxa",
+    x = "log2 fold change (Group1 vs Group2)",
+    y = "-log10 adjusted p-value",
+    color = "Phylum"
+  )
+
+p
+# ggsave("volcano_taxa.png", p, width = 8, height = 6, dpi = 300)
+
+```
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+alpha <- 0.05
+sig  <- subset(sigtab, padj <= alpha & !is.na(Genus))
+ns   <- subset(sigtab, is.na(padj) | padj > alpha)
+
+ggplot() +
+  geom_point(data = ns,
+             aes(x = log2FoldChange, y = -log10(padj)),
+             color = "grey80", alpha = 0.6, size = 2) +
+  geom_point(data = sig,
+             aes(x = log2FoldChange, y = -log10(padj), color = Phylum),
+             alpha = 0.9, size = 3) +
+  ggrepel::geom_text_repel(
+    data = sig,
+    aes(x = log2FoldChange, y = -log10(padj), label = Genus, color = Phylum),
+    size = 3, max.overlaps = 20, show.legend = FALSE
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+  scale_color_brewer(palette = "Dark2") +  # 👈 più brillante
+  theme_bw(base_size = 14) +
+  labs(
+    title = "Volcano plot of differential taxa",
+    x = "log2 fold change (Group1 vs Group2)",
+    y = "-log10 adjusted p-value",
+    color = "Phylum"
+  )
+
+
+```
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+
+volcano_metagenome <- function(sigtab, alpha = 0.05, palette = "Dark2") {
+  # prepara colonne sicure
+  df <- sigtab %>%
+    mutate(
+      # etichetta: asv_<Genus> se disponibile, altrimenti asv_<Phylum>
+      label_genus = if_else(is.na(Genus) | Genus == "", Phylum, Genus),
+      label = paste0("asv_", label_genus),
+      # per sicurezza: evita -Inf quando padj = 0
+      padj_safe = if_else(is.na(padj) | padj <= 0, 1e-300, padj)
+    )
+
+  sig <- filter(df, padj_safe <= alpha)
+  ns  <- filter(df, padj_safe >  alpha)
+
+  ggplot() +
+    # non significativi: grigi
+    geom_point(data = ns,
+               aes(x = log2FoldChange, y = -log10(padj_safe)),
+               color = "grey80", alpha = 0.6, size = 2) +
+    # significativi: colorati per Phylum
+    geom_point(data = sig,
+               aes(x = log2FoldChange, y = -log10(padj_safe), color = Phylum),
+               alpha = 0.9, size = 3) +
+    # etichette sui significativi (asv_<Genus> o asv_<Phylum>)
+    ggrepel::geom_text_repel(
+      data = sig,
+      aes(x = log2FoldChange, y = -log10(padj_safe), label = label, color = Phylum),
+      size = 3, max.overlaps = 20, show.legend = FALSE
+    ) +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+    {
+      if (palette %in% rownames(RColorBrewer::brewer.pal.info)) {
+        scale_color_brewer(palette = palette)
+      } else {
+        scale_color_manual(values = scales::hue_pal()(length(unique(sig$Phylum))))
+      }
+    } +
+    theme_bw(base_size = 14) +
+    labs(
+      title = "Volcano plot of differential taxa",
+      x = "log2 fold change (Group1 vs Group2)",
+      y = "-log10 adjusted p-value",
+      color = "Phylum"
+    )
+}
+
+# uso:
+p <- volcano_metagenome(sigtab, alpha = 0.05, palette = "Dark2")
+print(p)
+# ggsave("volcano_taxa.png", p, width = 8, height = 6, dpi = 300)
+
+```
+
+
+
+
+```{r}
+intsASVs = read.xlsx("../results/metagenomics/intersections/IntsASVs.xlsx", sheetIndex =  1, row.names = 1)
+intsASVs = row.names(intsASVs)
+
+f = sigtab[row.names(sigtab) %in% intsASVs,]
+
+
+
+```
+
+
+
+```{r}
+library(reshape2)
+cpm = NormCounts
+
+# 1️⃣ Filtra solo le ASV significative (padj < 0.05)
+sigASVs <- rownames(f[f$padj < 0.05, ])
+
+# 2️⃣ Estrai le CPM corrispondenti
+cpm_sig <- cpm[sigASVs, , drop = FALSE]
+
+f2 = f[row.names(f) %in% row.names(cpm_sig), , drop = FALSE]
+
+## ⬅️ NUOVO: riallinea f2 all'ordine di cpm_sig
+f2 <- f2[match(rownames(cpm_sig), rownames(f2)), , drop = FALSE]
+
+f2$label <- paste(row.names(f2), f2$Genus, sep = "_")
+row.names(cpm_sig) = f2$label
+sigASVs <- f2[f2$padj <= 0.05, "label"]
+
+# 3️⃣ Trasforma in formato long per ggplot
+df_long <- melt(as.matrix(cpm_sig), varnames = c("ASV", "Sample"), value.name = "CPM")
+
+df_long$Sample <- as.character(df_long$Sample)
+row.names(sampleDt)
+
+# 4️⃣ Aggiungi i metadati del campione
+df_long <- df_long %>%
+  left_join(
+    data.frame(Sample = rownames(sampleDt), sampleDt),
+    by = "Sample"
+  )
+
+# 5️⃣ Ordina le ASV per significatività (usando le label)
+f2$ASV <- f2$label
+sig_meta <- f2 %>%
+  filter(ASV %in% sigASVs) %>%
+  arrange(padj)
+
+df_long$ASV <- factor(df_long$ASV, levels = sig_meta$ASV)
+
+
+# 6️⃣ Boxplot (esempio: confronto tra MetS 0 e 1)
+p1 <- ggplot(df_long, aes(x = factor(groupIGA), y = CPM, fill = factor(groupIGA))) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  facet_wrap(~ ASV, scales = "free_y", ncol = 5) +
+  scale_y_log10() +
+  scale_fill_manual(values = c("#4DBBD5", "#E64B35")) +
+  labs(x = "Group", y = "log10 CPM", fill = "Group") +
+  theme_bw() +
+  theme(
+    strip.text = element_text(size = 8, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+
+
+print(p1)
+
+# 7️⃣ (Opzionale) Salva
+ggsave("../results/metagenomics/IntsASVsinBariatricSur.png", p, width = 30, height = 25, units = "cm", dpi = 300)
+
+```
+
+```{r}
+library(patchwork)
+
+# Combina i due plot (uno accanto all’altro)
+combined <- p / p1  # oppure p1 | p2
+
+# Oppure uno sopra l’altro:
+# combined <- p1 / p2
+library(patchwork)
+
+combined <- p / p1 + plot_layout(heights = c(5, 3))  # p1 alto 1 unità, p2 alto 2 unità
+
+ggsave("../results/metagenomics/CombineF.png", combined,
+       width = 35, height = 35, units = "cm", dpi = 600)
+
+# Salva
+ggsave(
+  "../results/metagenomics/Combined_Volcano_IntsASVs.png",
+  combined,
+  width = 30, height = 40, units = "cm", dpi = 300
+)
+
+
+library(patchwork)
+
+# Sposta le legende in basso in entrambi
+p_volcano <- p + theme(legend.position = "bottom")
+p_box     <- p1 + theme(legend.position = "bottom")
+
+# Combina uno sopra l’altro, riutilizzando lo spazio della legenda
+combined <- (p_volcano / p_box) +
+  plot_layout(guides = "collect", heights = c(0.6, 1.4)) &
+  theme(
+    legend.position = "bottom",
+    legend.box = "horizontal",
+    legend.margin = margin(0, 0, 0, 0),
+    legend.box.margin = margin(0, 0, 0, 0)
+  )
+
+# Salva in file
+ggsave(
+  "../results/metagenomics/Combined_Volcano_IntsASVs.png",
+  combined,
+  width = 30, height = 25, units = "cm", dpi = 300
+)
+
+
+```
+
+

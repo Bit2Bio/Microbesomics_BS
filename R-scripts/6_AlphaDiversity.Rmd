@@ -1,0 +1,121 @@
+---
+title: "Microbesomics - MetS Metagenomic Signature"
+output: html_document
+---
+
+```{r}
+#Path dei Risultati
+setwd("/home/lorenzo/Microbesomics_MetS/R-scripts")
+
+path = "Progetti/Microbesomics/Microbesomics_MetS/Docs"
+
+#qza_path
+qza_path = paste0("../data/Pre-processing24-07-2025/qza/")
+#source("Import.R")
+ps_filt = readRDS("../data/metagenomics/ps_filt.rds")
+sampleDt = readRDS("../data/clinics/SmpDtMetSRiskFactors.rds")
+CatVars = c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS", "MetS")
+sampleDt[CatVars] <- lapply(sampleDt[CatVars], as.factor)
+data_orario <- format(Sys.time(), "%d-%m-%Y")
+
+# ps<-import_qiime2(paste0(qza_path, "/", "asv_table.qza"),
+#                   taxa_qza = paste0(qza_path, "/", "taxonomy.qza"),
+#                   sam_tab = NULL,
+#                   tree_qza =  paste0(qza_path, "/", "fasttree_tree_rooted.qza") ,
+#                   refseq_qza = paste0(qza_path, "/", "rep_seq.qza"))
+
+#Change Sample Names
+
+
+# sample_names(ps) = as.character(1:247)
+ps_alpha = merge_phyloseq(ps_filt, sample_data(sampleDt))
+#ps_alpha = rarefy_even_depth(ps_alpha)
+sample_data(ps_alpha) = sample_data(sampleDt)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, results="asis")
+```
+
+```{r}
+#Import librerie R
+library(ggplot2)
+library(DESeq2)
+library(vegan)
+library(ggVennDiagram)
+require(gridExtra)
+library(openxlsx)
+library(UpSetR)
+library(ComplexUpset)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(ComplexHeatmap)
+library(circlize)
+library(Microsoft365R)
+library(microbiomeMarker)
+library(phyloseq)
+library(xlsx)
+library(reticulate)
+use_condaenv("python_env")
+library(knitr)
+library(writexl)
+library("ggpubr")
+py_run_string("
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as sm
+import pingouin as ping           
+")
+```
+
+```{r}
+library(phyloseq)
+library(ggplot2)
+library(patchwork)
+library(ggpubr)
+
+#Associazioni delle 7 Variabili in esame con Metagenomica by DEseq2
+CatVars = c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS", "MetS")
+sampleDt[CatVars] <- lapply(sampleDt[CatVars], as.factor)
+symnum.args = list(cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 1), symbols = c("****", "***", "**", "*", "ns"))
+alphaRes = list()
+
+
+for (MetTrait in CatVars) {
+  tmpSmp <- sampleDt[!is.na(sampleDt[[MetTrait]]), ]
+
+# filtra phyloseq mantenendo solo i campioni di tmpSmp
+tmp_ps_filt <- prune_samples(
+  sample_names(ps_alpha) %in% rownames(tmpSmp),
+  ps_alpha
+)
+  
+  palpha <- plot_richness(tmp_ps_filt,
+                          x = MetTrait,
+                          measures = c("Observed", "Fisher", "ACE"),
+                          color = MetTrait) +
+    geom_boxplot(alpha = 0.6) +
+    theme(legend.position = "none",
+          axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12)) +
+    stat_compare_means(method = "t.test",
+                       label = "p.signif",
+                       comparisons = list(c("0","1")),
+                       symnum.args = symnum.args)
+
+  # salva nella lista con nome chiave
+  alphaRes[[MetTrait]] <- palpha
+  }
+
+library(patchwork)
+
+# unisci tutti i plot della lista in una griglia
+combined_plot <- wrap_plots(alphaRes, ncol = 3)
+svg("../results/metagenomics/alphaBetaDiv/alphaDiversity.svg")
+combined_plot
+dev.off()
+```
+
+
+
+::

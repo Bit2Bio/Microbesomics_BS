@@ -1,0 +1,1841 @@
+---
+title: "metagenomica"
+output: html_document
+date: "2023-05-02"
+---
+
+```{r setup, include=FALSE}
+library(reticulate)
+use_condaenv("python_env")
+library(microbiomeMarker)
+library(phyloseq)
+#library(DESeq2)
+library(metagenomeSeq)
+library(ggplot2)
+library(reshape2)
+library(RColorBrewer)   
+library(ggpubr)
+library(xlsx)
+library(metacoder)
+library(data.table)
+library(phyloseq)
+library(ALDEx2)
+library(tidyverse)
+library(WGCNA)
+require(gridExtra)
+
+```
+
+```{python}
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as sm
+import pingouin as ping
+from scipy import stats
+```
+
+```{r}
+setwd("~/Microbesomics_MetS/R-scripts/")
+```
+
+
+```{python}
+path = "/home/lorenzo/Microbesomics_MetS/data/ValidazioneFloromidia/"
+clin_data = pd.read_csv(path + "clinica/floromidia_clinical_data_2018_LAcp.csv", index_col = 0)
+
+metab_data = pd.read_csv(path + "metabolomica/HELM_all_samps.csv", index_col=0)
+metab_data = metab_data.loc[:,"1":].T
+metab_data = metab_data.loc[~metab_data.index.isin(["64","65", "3", "39", "41"]),]
+
+
+clin_data = clin_data.loc[metab_data.index.astype(int).to_list()]
+
+clin_data["indolepropionate"] = metab_data.indolepropionate.to_list()
+q1, q3 = clin_data["indolepropionate"].quantile([0.33, 0.66])
+clin_data["Group"] = ["High-IPA" if x >= q3 else "Low-IPA" if x <= q1 else "to_remove" for x in clin_data["indolepropionate"].to_list()]
+
+
+genedata = pd.read_csv(path + "trascrittomica/gene_expr_source.csv", index_col = 0)
+
+#metab_data.loc[~metab_data.index.isin(genedata.columns.to_list()),:]
+```
+
+
+```{r Import metagenomic data, include=FALSE}
+ps<-import_qiime2("~/Downloads/WGCNA_Tutorial/docs/metagenomica/table.qza",
+                  taxa_qza = "~/Downloads/WGCNA_Tutorial/docs/metagenomica/taxonomy.qza",
+                  sam_tab = NULL,
+                  tree_qza = "~/Downloads/WGCNA_Tutorial/docs/metagenomica/rooted_tree.qza",
+                  refseq_qza = "~/Downloads/WGCNA_Tutorial/docs/metagenomica/rep-seqs.qza")
+
+#import metadata
+#metadata <-read.delim("Documents/fecal/sample_data_28.txt", row.names=1, sep = ",")
+#etadata <-read.delim("Documents/fecal/sample_data_complete.txt", row.names=1, sep = ",", header = T)
+#dems <- colnames(metadata[,(length((colnames((metadata))))-34):length(metadata)])
+ps_sample_data =sample_data(py$clin_data)
+ps_sample_data[!row.names(ps_sample_data) %in% c("64", "65"),]
+ps = merge_phyloseq(ps, ps_sample_data)
+
+#Filtering samples
+#ipaq_ps <- subset_samples(ps, Group != "na")
+sample_data(ps)$Group = factor(sample_data(ps)$Group, levels = c("Low-IPA","High-IPA", "to_remove") )
+sample_data(ps)$Group = ordered(sample_data(ps)$Group, levels =c("High-IPA", "Low-IPA", "to_remove"))
+```
+
+
+```{r}
+#Per Gestire il problema dei NA li sostitutiamo con "unknown"
+
+smpDt = data.frame(sample_data(ps))
+
+# smpDt$HYP_drug1[is.na(smpDt$HYP_drug1)] <- "unknown"
+# smpDt$HYP_drug2[is.na(smpDt$HYP_drug2)] <- "unknown"
+# smpDt$HYP_drug3[is.na(smpDt$HYP_drug3)] <- "unknown"
+# smpDt$HYP_drug4[is.na(smpDt$HYP_drug4)] <- "unknown"
+# smpDt$HYP_drug5[is.na(smpDt$HYP_drug5)] <- "unknown"
+# 
+# smpDt$DYSL_drug1[is.na(smpDt$DYSL_drug1)] <- "unknown"
+# smpDt$DYSL_drug2[is.na(smpDt$DYSL_drug2)] <- "unknown"
+# smpDt$DYSL_drug3[is.na(smpDt$DYSL_drug3)] <- "unknown"
+
+#smpDt$glucose_0[is.na(smpDt$glucose_0)] <- "unknown"
+
+smpDt$"HyperglicemiaMetS"= NA
+smpDt$"TrygliceridesMetS" = NA
+smpDt$"HypertensionMets" = NA
+smpDt$"AbdominalObesityMetS" = NA
+smpDt$"HDL_MetS" = NA
+```
+
+**MetS Risk factors - Criteria Utilized** <br> <button class="btn btn-primary" data-toggle="collapse" data-target="#cella2">Expand/Collapse</button>
+
+::: {#cella2 .collapse}
+```{r echo=TRUE}
+# Assegna 0 ai restanti
+smpDt$HyperglicemiaMetS[!(smpDt$FPG > 100 | smpDt$Diabetes == 1)] <- 0
+
+#Hyperglicemia
+# Assegna 1 ai soggetti con glicemia a digiuno > 100 o diabetici
+smpDt$HyperglicemiaMetS[smpDt$FPG > 100 | smpDt$Diabetes == 1] <- 1
+
+
+
+#Abdominal Obesity
+# Assegna 1 ai soggetti con Waist > 94 e sex = 0 
+smpDt$AbdominalObesityMetS[smpDt$Waist > 94 & smpDt$sex == 1] <- 1
+# Assegna 1 ai soggetti con Waist < 94 e sex = 0 
+smpDt$AbdominalObesityMetS[smpDt$Waist <= 94 & smpDt$sex == 1] <- 0
+
+# Assegna 1 ai soggetti con Waist > 80 e sex = 1 
+smpDt$AbdominalObesityMetS[smpDt$Waist > 80 & smpDt$sex == 2] <- 1
+# Assegna 1 ai soggetti con Waist < 80 e sex = 1 
+smpDt$AbdominalObesityMetS[smpDt$Waist <= 80 & smpDt$sex == 2] <- 0
+smpDt[row.names(smpDt) =="50", "AbdominalObesityMetS"] <- 1
+smpDt[row.names(smpDt) =="34", "AbdominalObesityMetS"] <- 0
+#Hypertension
+# Assegna 1 ai soggetti con ((sbp > 130 o dbp < 85) e sex = 0) o (HypDrug1-2-3 = 1) 
+smpDt$HypertensionMets[((smpDt$SBP > 130 | smpDt$DBP > 85) | smpDt$Hypertension ==1)] <- 1
+# Assegna 0 agli altri
+smpDt$HypertensionMets[((smpDt$SBP <= 130 & smpDt$DBP < 85) & smpDt$Hypertension ==0)] <- 0
+
+#HDL-CholesterolMetS
+# Assegna 1 ai soggetti con (HDL < 40 e sex = 0) o (DyslDrug1-2-3 = 1) 
+smpDt$HDL_MetS[((smpDt$HDL.cholesterol < 40 & smpDt$sex == 1))] <- 1
+# Assegna 0 ai soggetti con (HDL > 40 e sex = 0) o (DyslDrug1-2-3 = 1) 
+smpDt$HDL_MetS[((smpDt$HDL.cholesterol >= 40 & smpDt$sex == 1))] <- 0
+
+# Assegna 1 ai soggetti con (HDL < 50 e sex = 1) o (DyslDrug1-2-3 = 1) 
+smpDt$HDL_MetS[((smpDt$HDL.cholesterol < 50 & smpDt$sex == 2) )] <- 1
+# Assegna 0 ai soggetti con (HDL < 50 e sex = 1) o (DyslDrug1-2-3 = 1) 
+smpDt$HDL_MetS[((smpDt$HDL.cholesterol >= 50 & smpDt$sex == 2) )] <- 0
+
+
+
+#Tryglicerides
+# Assegna 1 ai soggetti con (Tryglicerides < 40 e sex = 0) o (DyslDrug1-2-3 = 1) 
+smpDt$TrygliceridesMetS[((smpDt$Triglycerides > 150))] <- 1
+# Assegna 0 ai soggetti con (HDL > 40 e sex = 0) o (DyslDrug1-2-3 = 1) 
+smpDt$TrygliceridesMetS[!((smpDt$Triglycerides > 150))] <- 0
+
+#Definizione Sindrome metabolica
+variables <- c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS", "AbdominalObesityMetS")
+
+smpDt$"MetS" = 0
+smpDt$MetS[rowSums(smpDt[, variables]) >=3] = 1
+```
+
+```{python}
+otu_filt_norm = pd.read_csv("/home/lorenzo/Downloads/WGCNA_Tutorial/docs/metagenomica/MicrobiomeAnalyst/data_normalized.csv", index_col=0)
+#otu_filt_norm = pd.read_csv("/home/lorenzo/Downloads/data_normalized.csv", index_col = 0)
+```
+
+
+```{r}
+ps_filt = merge_phyloseq(ps, sample_data(smpDt))
+
+# porta l'OTU table a matrice, taxa su righe
+mat <- as(otu_table(ps_filt), "matrix")
+if (!taxa_are_rows(ps_filt)) mat <- t(mat)
+
+## Prevalenza (n° campioni con count > 0)
+prev <- rowSums(mat > 0)
+
+## Abbondanza totale
+totab <- rowSums(mat)
+
+## Varianza su relative abundance
+mat_rel <- sweep(mat, 2, colSums(mat), "/")
+vars_rel <- apply(mat_rel, 1, var)  # ora ok: è una matrice base
+
+
+
+keep_prev <- prev >= ceiling(ncol(mat) * 0.10)  # 10% dei campioni
+keep_tot  <- totab >= 50                        # soglia d'esempio
+keep_var  <- vars_rel > quantile(vars_rel, 0.20, na.rm = TRUE)
+
+ps1 <- prune_taxa(keep_prev & keep_tot, ps_filt)     # prima i filtri di presenza/abbondanza
+ps_final <- prune_taxa(rownames(mat)[keep_var], ps1)
+
+```
+
+```{r}
+new_otu_tab = otu_table(py$otu_filt_norm, taxa_are_rows = TRUE)
+ps_filt_sub <- subset_taxa(ps_filt, taxa_names(ps_filt) %in% rownames(new_otu_tab))
+```
+
+```{r echo=TRUE}
+library(DESeq2)
+
+#Associazioni delle 7 Variabili in esame con Metagenomica by DEseq2
+ps_filt = ps_filt_sub
+desRes = list()
+plot_listDEseq2 <- list()
+CatVars = c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS", "MetS")
+#ps.filt.DESeq = tax_glom(ps.filt.DESeq, "Genus")
+for (col in CatVars) {
+
+  sampleDt.deseq =  as.data.frame(sample_data(ps_filt))
+  #row.names(sampleDt.deseq) = row.names(sampleDt.cp)
+  sampleDt.deseq = sampleDt.deseq[(sampleDt.deseq[,col]) != "",]
+  if (! col %in% c("age", "HOMA", "QUICKI")) {
+  sampleDt.deseq[[col]] = as.factor(sampleDt.deseq[[col]])
+  }
+  sampleDt.deseq[["sex"]] = as.factor(sampleDt.deseq[["sex"]])
+  #sampleDt.deseq[["Batch"]] = as.factor(sampleDt.deseq[["Batch"]])
+  #sampleDt.deseq[["gruppo"]] = as.factor(sampleDt.deseq[["gruppo"]])
+  ps.filt.DESeq = merge_phyloseq(otu_table(ps_filt), tax_table(ps_filt), sample_data(sampleDt.deseq))
+  sample_data(ps.filt.DESeq) = sample_data(sampleDt.deseq)
+  
+  #ps.filt.DESeq = tax_glom(ps.filt.DESeq, taxrank = "Genus", NArm = T)
+  ps.filt.DESeq.cp = ps.filt.DESeq
+  otu_table(ps.filt.DESeq) = otu_table(ps.filt.DESeq) +1
+  #print(ps.filt.DESeq)
+  x = paste("~", "age +sex +", col)
+  my_formula = formula(x)
+  #print(col)
+  ps_filt.DEseq = phyloseq_to_deseq2(ps.filt.DESeq,  my_formula)
+  ps_filt.DEseq= estimateSizeFactors(ps_filt.DEseq)
+  ps_filt.DEseq= estimateDispersions(ps_filt.DEseq)
+#ps_V_vs_VI_filt.DEseq = varianceStabilizingTransformation(ps_V_vs_VI_filt.DEseq)
+  diagdds = DESeq(ps_filt.DEseq, test="Wald", fitType="parametric" )
+  if (! col %in% c("age")) {
+    nnn = paste0(col,"_","1","_","vs","_","0")
+  res = results(diagdds, cooksCutoff = F, name = nnn,pAdjustMethod = "fdr")  
+  }
+  else {
+  res = results(diagdds, name = col, cooksCutoff = F,pAdjustMethod = "fdr")
+  }
+  
+  sigtab = as(res, "data.frame")
+  sigtab =cbind(as(sigtab, "data.frame"), tax_table(ps.filt.DESeq.cp))
+  sigtab = as.data.frame(sigtab)
+  
+  if (nrow(sigtab[!is.na(sigtab$padj),]) != 486) {
+    sigtab$padj[is.na(sigtab$padj)] <- 1
+  }
+  
+  sigtab = (sigtab[order(sigtab$padj),])
+  sigtab
+  #xlsx::write.xlsx(sigtab,"../results/metagenomics/ValidazioneFloromidia/Floromida_Metagenomics_MetSF.xlsx", sheetName = col, append = T)
+  desRes[[col]] = sigtab
+  
+  alpha = 0.054
+  sigtab = sigtab[sigtab$padj <= 0.054,]
+("ggplot2")
+theme_set(theme_bw())
+scale_fill_discrete <- function(palname = "Set1", ...) {
+    scale_fill_brewer(palette = palname, ...)
+}
+# Phylum order
+x = tapply(sigtab$log2FoldChange, sigtab$Phylum, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Phylum = factor(as.character(sigtab$Phylum), levels=names(x))
+# Genus order
+x = tapply(sigtab$log2FoldChange, sigtab$Genus, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Genus = factor(as.character(sigtab$Genus), levels=names(x))
+sigtab = sigtab[sigtab$Genus != "NA",]
+p = ggplot(sigtab, aes(x=log2FoldChange, y=Genus, color=Phylum)) + geom_point(size=3) +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5, size = 8.5)) + ggtitle(col)
+plot_listDEseq2[[col]] = p
+  
+  #write.csv(sigtab,file = paste0("~/Downloads/GUT_EB2021-22/results/DESeq_alimentazione/DESeq_alimenti_", col, ".csv"))
+  
+ggsave(p, device = "png",file = paste0("../results/metagenomics/ValidazioneFloromidia", "/",col, ".png"), width = 12, height = 20, dpi = 300)
+}
+```
+
+```{r}
+  NormCounts = counts(estimateSizeFactors(ps_filt.DEseq), normalized=TRUE)
+  openxlsx::write.xlsx(NormCounts, "../results/metagenomics/ValidazioneFloromidia/vstCountsFloromidia.xlsx", overwrite = T)
+  saveRDS(NormCounts, ("../results/metagenomics/ValidazioneFloromidia/vstCountsFloromidia.rds"))
+```
+
+
+
+
+```{r}
+intsASVs = read.xlsx("../results/metagenomics/intersections/IntsASVs.xlsx", sheetIndex =  1, row.names = 1)
+intsASVs = row.names(intsASVs)
+
+sigtab = desRes$MetS
+f = sigtab
+
+f = f[f$padj <=0.055,]
+f = f[!is.na(f$Genus),]
+f = f[f$Genus != "Prevotella_9",]
+
+MIPS = readRDS("../data/metagenomics/ps_filt.rds")
+
+tx = as.data.frame(tax_table(MIPS))
+
+tx2 = tx[row.names(tx) %in% intsASVs,]
+
+
+tr  =f[f$Genus %in% tx2$Genus,]
+
+```
+
+```{python}
+f = r.f
+newName = []
+for x,z in zip(f.index, f.Genus.to_list()):
+  newName.append(x[:5] +"_"+ z)
+f["nwName"] = newName
+```
+
+
+da eliminare
+```{r}
+make_lollipop <- function(df,
+                          label_col = "Genus",
+                          top_n = 30,
+                          padj_thr = 0.05,
+                          order_by = c("Genus")) {
+
+  order_by <- match.arg(order_by)
+
+  d <- df %>%
+    mutate(
+      label = .data[[label_col]] %||% rownames(df),
+      abs_log2FC = abs(log2FoldChange),
+      direction = ifelse(log2FoldChange >= 0, "pos", "neg"),
+      sig = ifelse(!is.na(padj) & padj < padj_thr, "FDR < 0.05", "ns")
+    )
+
+  # Filtra per significatività
+  if (!is.na(padj_thr)) {
+    d_top <- d %>% filter(!is.na(padj) & padj < padj_thr)
+    if (nrow(d_top) == 0) d_top <- d
+  } else {
+    d_top <- d
+  }
+
+  # Ordina
+  if (order_by == "log2FC") {
+    d_top <- d_top %>% arrange(desc(abs_log2FC))
+  } else {
+    d_top <- d_top %>% arrange(padj)
+  }
+
+  # Top N
+  d_top <- d_top %>%
+    slice_head(n = min(top_n, nrow(.))) %>%
+    mutate(label = make.unique(as.character(label))) %>%
+    mutate(label = fct_reorder(label, log2FoldChange))
+
+  gg <- ggplot(d_top, aes(x = log2FoldChange, y = label)) +
+    geom_segment(aes(x = 0, xend = log2FoldChange, y = label, yend = label),
+                 linewidth = 0.6) +
+    geom_point(aes(color = direction), size = 4) +
+    geom_vline(xintercept = 0, linewidth = 0.4, linetype = "dashed") +
+    scale_color_manual(values = c("pos" = "blue", "neg" = "red"),
+                       labels = c("pos" = "logFC > 0", "neg" = "logFC < 0"),
+                       name = NULL) +
+    labs(x = "log2 Fold Change", y = NULL,
+         title = paste0(" ")) +
+    theme_minimal(base_size = 12) +
+    theme(panel.grid.major.y = element_blank(),
+          legend.position = "right")
+
+  return(gg)
+}
+
+
+```
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(forcats)
+
+make_lollipop <- function(df,
+                          label_col = "Genus",
+                          top_n = -Inf,
+                          padj_thr = 0.05,
+                          color_by = "Family") {
+
+  d <- df %>%
+    mutate(
+      label = .data[[label_col]] %||% rownames(df),
+      .color = .data[[color_by]]
+    )
+
+  # sostituisce NA family
+  d$.color[is.na(d$.color) | d$.color == ""] <- "Unassigned"
+
+  # Filtra per padj
+  d_top <- d %>%
+    filter(!is.na(padj) & padj < padj_thr) %>%
+    slice_head(n = min(top_n, nrow(.)))
+
+  # Ordina SOLO per Family
+  d_top <- d_top %>%
+    arrange(.color) %>%
+    mutate(
+      label = make.unique(as.character(label)),
+      label = fct_reorder(label, as.numeric(factor(.color)))
+    )
+
+  gg <- ggplot(d_top, aes(x = log2FoldChange, y = label)) +
+    geom_segment(aes(x = 0, xend = log2FoldChange, y = label, yend = label),
+                 linewidth = 0.6) +
+    geom_point(aes(color = .color), size = 4) +
+    geom_vline(xintercept = 0, linewidth = 0.4, linetype = "dashed") +
+    labs(
+      x = "log2 Fold Change",
+      y = NULL,
+      color = color_by
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.grid.major.y = element_blank(),
+      legend.position = "right"
+    )
+
+  return(gg)
+}
+
+```
+
+
+
+
+```{r}
+f9 = py$f
+f9 = f9[f9$Genus != "Prevotella_9",]
+pLollipop <- make_lollipop(f9, label_col = "nwName", top_n = 60, padj_thr = 0.055)
+
+
+```
+
+
+```{r}
+tr  =f[f$Genus %in% tx2$Genus,]
+tr = tr[tr$Genus != "Prevotella_9",]
+
+
+flo = unique(f$Genus)
+flo = flo[flo != "Prevotella_9"]
+sig = unique((tx2$Genus))
+intersect(flo,sig)
+
+```
+```{r}
+library(VennDiagram)
+venn.plot <- venn.diagram(
+  x = list(
+    Flo = flo,
+    Sig = sig
+  ),
+  filename = NULL,
+  main = NULL        # ← NESSUN TITOLO
+)
+
+grid::grid.newpage()
+grid::grid.draw(venn.plot)
+
+```
+
+```{r}
+library(ggVennDiagram)
+library(ggplot2)
+
+flo <- unique(f$Genus)
+sig <- unique(tx2$Genus)
+
+sets <- list(
+  ValidationSet = flo,
+  Signature = sig
+)
+
+vennGenus = ggVennDiagram(
+  sets,
+  label_percent = FALSE,   # ✅ niente percentuali
+  label_alpha = 0
+) +
+ scale_fill_gradient(
+  low  = "green",  # violetto elegante
+    # blu-ciano scientifico
+  high = "#2166AC",   # blu navy profondo
+  
+) +
+  labs(title = "Genus") +
+  theme(
+    legend.position = "none",
+    plot.title = element_blank()
+  ) + coord_flip()
+
+
+```
+
+```{r}
+library(ggVennDiagram)
+library(ggplot2)
+
+flo <- unique(f$Family)
+sig <- unique(tx2$Family)
+
+sets <- list(
+  ValidationSet = flo,
+  Signature = sig
+)
+
+VennFamily = ggVennDiagram(
+  sets,
+  label_percent = FALSE,   # ✅ niente percentuali
+  label_alpha = 0
+) +
+scale_fill_gradient(
+  low  = "#FDE725",   # giallo-ocra (viridis base)
+  high = "#1A9850"    # verde petrolio
+)+
+  labs(title = "Family") +
+  theme(
+    legend.position = "none",
+    plot.title = element_blank()
+  ) + coord_flip()
+
+```
+
+
+
+```{r}
+## ==== Pacchetti ====
+library(dplyr)
+library(igraph)
+library(ggraph)
+library(ggplot2)
+
+## ==== 0) Normalizzazione (consigliata) ====
+norm_tax <- function(x) trimws(gsub("\\s+", " ", as.character(x)))
+f   <- f   %>% dplyr::mutate(Genus  = norm_tax(Genus),
+                             Family = norm_tax(Family))
+tx2 <- tx2 %>% dplyr::mutate(Genus  = norm_tax(Genus),
+                             Family = norm_tax(Family))
+
+## ==== 1) Insiemi comuni (semplice intersezione) ====
+common_families <- intersect(unique(f$Family),  unique(tx2$Family))
+common_genera   <- intersect(unique(f$Genus),   unique(tx2$Genus))
+
+cat("n famiglie comuni =", length(common_families), "\n")
+cat("n generi comuni   =", length(common_genera), "\n")
+
+## ==== 2) Mappa Genus -> Family da un dataset di riferimento (qui: f) ====
+map_ref <- f %>%
+  dplyr::distinct(Genus, Family) %>%
+  dplyr::filter(Genus %in% common_genera, Family %in% common_families)
+
+## Se lo stesso Genus ha più Family nel riferimento, tieni la prima
+dups <- map_ref %>%
+  dplyr::count(Genus, name = "n") %>%
+  dplyr::filter(n > 1)
+
+if (nrow(dups) > 0) {
+  message("Attenzione: alcuni Genera hanno più di una Family nel riferimento f: ",
+          paste(dups$Genus, collapse = ", "),
+          ". Prendo la prima occorrenza.")
+  map_ref <- map_ref %>%
+    dplyr::group_by(Genus) %>%
+    dplyr::slice_head(n = 1) %>%
+    dplyr::ungroup()
+}
+
+## ==== 3) Nodi ed archi per grafo bipartito ====
+nodes <- tibble::tibble(
+  name = c(common_families, common_genera),
+  type = c(rep(TRUE, length(common_families)),
+           rep(FALSE, length(common_genera)))
+)
+
+edges <- map_ref %>%
+  dplyr::transmute(from = Family, to = Genus)
+
+g <- igraph::graph_from_data_frame(edges, vertices = nodes, directed = FALSE)
+
+## ==== 4) Colori coerenti per Family ====
+pal <- scales::hue_pal()(length(common_families))
+fam_col <- stats::setNames(pal, common_families)
+
+# assegnazione gruppo/colore ai nodi
+V(g)$group <- ifelse(V(g)$type, V(g)$name, NA_character_)
+genus_to_family <- edges %>% dplyr::distinct(to, from)
+V(g)$group[!V(g)$type] <- genus_to_family$from[
+  match(V(g)$name[!V(g)$type], genus_to_family$to)
+]
+V(g)$color <- unname(fam_col[V(g)$group])
+
+## ==== 5) Plot bipartito (Famiglie a sinistra, Generi a destra) ====
+set.seed(123)
+pGrapgh <- ggraph(g, layout = "bipartite") +
+  geom_edge_link(alpha = 0.45, linewidth = 0.6, colour = "grey70") +
+  geom_node_point(aes(shape = type, colour = color), size = 3, show.legend = FALSE) +
+  scale_colour_identity() +
+  scale_shape_manual(values = c(`TRUE` = 24, `FALSE` = 16)) +
+  geom_node_text(aes(label = name), size = 3, repel = TRUE) +
+  theme_void() +
+  theme(plot.margin = margin(10, 10, 10, 10))
+
+print(pGrapgh)
+
+```
+
+```{r}
+# install.packages(c("cowplot","magick")) se servono
+library(cowplot)
+
+# Helper: rende ogni input un plot (ggplot/grob o immagine)
+as_plot <- function(x) {
+  if (inherits(x, "gg") || inherits(x, "grob") || inherits(x, "ggplot")) return(x)
+  ggdraw() + draw_image(x)  # path o magick-image
+}
+
+# Sostituisci qui i nomi delle tue variabili:
+A_var <- pLollipop
+B_var <- vennGenus
+C_var <- VennFamily
+D_var <- pGrapgh
+
+# Wrapper in plot “sicuro”
+pA <- as_plot(A_var)
+pB <- as_plot(B_var)
+pC <- as_plot(C_var)
+pD <- as_plot(D_var)
+
+## Tag per pannello (USARE labs(tag=...))
+pA_tag <- pA + labs(tag = "A")
+pB_tag <- pB + labs(tag = "B")
+pC_tag <- pC + labs(tag = "C")
+pD_tag <- pD + labs(tag = "D")
+library(patchwork)
+
+
+## 2) riga con B e C più piccoli e centrati
+row_BC <- plot_spacer() + pB_tag + pC_tag + plot_spacer() +
+  plot_layout(widths = c(1.8, 2, 2, 1.8))   # aumenta 1.8→più piccoli
+
+## 3) figura finale con sfondo bianco
+final_fig <- pA_tag / row_BC / pD_tag +
+  plot_layout(heights = c(2, 1, 0.8)) &
+  theme(
+    plot.tag = element_text(face = "bold", size = 16),
+    plot.background  = element_rect(fill = "white", colour = NA),
+    panel.background = element_rect(fill = "white", colour = NA)
+  )
+
+final_fig
+
+
+# Riga 2: B e C affiancati (etichette B, C)
+library(patchwork)
+
+row_BC <- plot_spacer() + pB + pC + plot_spacer() +
+  plot_layout(widths = c(1, 2, 2, 1)) +
+  plot_annotation(tag_levels = NULL)
+
+# Composizione finale:
+#  - riga 1: A (etichetta A)
+#  - riga 2: B|C
+#  - riga 3: D (etichetta D)
+
+final_fig <- plot_grid(
+  plot_grid(pA, labels = "A", label_size = 18),
+  row_BC,                             # B + C
+  plot_grid(pD, labels = "D", label_size = 18),
+  ncol = 1,
+  rel_heights = c(1.8, 0.3, 0.7)      # <--- A più grande, B–C più piccoli, D più piccolo
+)
+
+final_fig
+
+# Salvataggio (alta qualità)
+ggsave("figure_ABC_D_F.png", final_fig, width = 14, height = 16, units = "in", dpi = 300)
+# Oppure vettoriale:
+ggsave("figure_ABC_D.svg", final_fig, width = 14, height = 16, units = "in")
+
+```
+
+```{r}
+library(cowplot)
+as_plot <- function(x) {
+  if (inherits(x, "gg") || inherits(x, "grob") || inherits(x, "ggplot")) return(x)
+  ggdraw() + draw_image(x)
+}
+
+# le tue variabili già definite:
+# A_var <- pLollipop
+# B_var <- vennGenus
+# C_var <- VennFamily
+# D_var <- pGrapgh
+
+pA <- as_plot(A_var)
+pB <- as_plot(B_var)
+pC <- as_plot(C_var)
+pD <- as_plot(D_var)
+
+library(patchwork)
+
+## Tag per pannello (USARE labs(tag=...))
+pA_tag <- pA + labs(tag = "A")
+pB_tag <- pB + labs(tag = "B")
+pC_tag <- pC + labs(tag = "C")
+pD_tag <- pD + labs(tag = "D")
+
+## B e C più piccoli e centrati con spacer
+row_BC <- plot_spacer() + pB_tag + pC_tag + plot_spacer() +
+  plot_layout(widths = c(1.8, 2, 2, 1.8))
+
+## Composizione finale + sfondo bianco + stile tag
+final_fig <- pA_tag / row_BC / pD_tag +
+  plot_layout(heights = c(2, 1, 0.8)) &
+  theme(
+    plot.tag = element_text(face = "bold", size = 16),
+    plot.tag.position = c(0, 1),                  # tag in alto a sinistra
+    plot.background  = element_rect(fill = "white", colour = NA),
+    panel.background = element_rect(fill = "white", colour = NA)
+  )
+
+final_fig
+
+```
+
+
+
+
+```{r}
+vstInts = NormCounts[row.names(NormCounts) %in% row.names(tr),]
+vstInts = as.data.frame(vstInts)
+```
+
+```{python}
+vstInts = r.vstInts
+vstInts = vstInts.T
+vstInts = vstInts.loc[metab_data.index,:]
+CrossOmicsDataForomidia = pd.merge(vstInts, metab_data, left_index  =True, right_index = True )
+```
+
+```{r}
+vstOmicsFlo = py$CrossOmicsDataForomidia
+saveRDS(vstOmicsFlo,"../results/metagenomics/ValidazioneFloromidia/vstCrossOmicsFloromidia.rds")
+```
+
+
+
+```{r Filter NA in Phylum, include=FALSE}
+#ipaq_ps_filt <- subset_samples(ps, Group != "to_remove")
+
+ipaq_ps_filt <- subset_taxa(ps, !is.na(Phylum))
+ipaq_ps_filt <- subset_samples(ipaq_ps_filt, Group != "to_remove")
+
+```
+
+```{r include=FALSE}
+ps_rf <-rarefy_even_depth(ipaq_ps_filt, sample.size = min(sample_sums(ipaq_ps_filt)), rngseed = 1, replace = F, trimOTUs = F, verbose = TRUE)
+
+```
+
+```{r tax_glom NA_RM is TRUE, include=FALSE}
+ps_gen <- tax_glom(ps_rf, taxrank = "Genus", NArm = TRUE)
+```
+
+
+
+```{r alpha-div}
+a = plot_richness(ps_gen, x= "Group",measures = c("Observed",  "Shannon",  "Fisher","Simpson",  "Chao1"),color = "Group")+ geom_boxplot()   + geom_point() + xlab("") 
+
+#Alpha-div-metrics
+alpha_metrics <- estimate_richness(ps_gen, measures = c("Observed",  "Shannon",  "Fisher","Simpson",  "Chao1"))
+
+
+#Adding ipa_q values to alpha metrics dataframe
+metadata <- sample_data(ipaq_ps_filt)
+alpha_metrics$Group <- metadata$Group
+
+#Calculate statistics for all:
+wilc.pvals<- c()
+ttest.pvals <- c()
+kruskal.pvals <- c()
+metrics = c("Observed",  "Shannon",  "Fisher", "Simpson", "Chao1")
+for (x in metrics) {
+
+  res <- kruskal.test(alpha_metrics[,x] ~ alpha_metrics$Group)
+  kruskal.pvals <- append(kruskal.pvals,res$p.value)
+  
+}
+
+res <- wilc.pvals
+
+
+
+
+ fdr = p.adjust(kruskal.pvals, method = "fdr")
+ bh = p.adjust(kruskal.pvals, method = "BH")
+ #holm = p.adjust(res[,"kruskal.pvals"], method = "holm")
+ res = cbind(kruskal.pvals, fdr, bh)
+  
+colnames(res) <-  c("kruskal.pvals" ,"fdr","BH")
+row.names(res) <- metrics
+res
+```
+
+```{r}
+#my_comparison= c("High-IPA"," Low-IPA")
+path = paste0(output_dir, "/", "Alpha-Diversity")
+for (metric in metrics){
+  plot_name = path
+  plot_name = paste0(path,"/", metric,".png")
+p1 <- ggviolin(alpha_metrics,x = "Group",y = metric,
+add = "boxplot", fill = "Group", palette = c("#a6cee3", "#b2df8a")) 
+a = p1 + stat_compare_means(aes(label = ..p.signif..),size=8,comparisons = list(c("Low-IPA", "High-IPA")), test = "kruskal.test") + geom_point()
+plot(a)
+if (expmode == 1){ggsave(a, file=plot_name, width = 14, height = 10)}
+}
+
+if(expmode ==1){write.xlsx(res, paste0(path,"/", "alpha_div.xlsx"), row.names=1)}
+```
+# ```{r}
+# dummy_df = tax_glom(ps_rf, taxrank = "Phylum")
+# bacteroides = subset_taxa(dummy_df, Phylum == "Bacteroidota")
+# bacteroides = otu_table(bacteroides)[1,]
+# firmicutes =  subset_taxa(dummy_df, Phylum ==  "Firmicutes")
+# firmicutes = otu_table(firmicutes)[1,]
+# fb_ratio = firmicutes/bacteroides
+# dummy_df = merge_phyloseq(otu_table(fb_ratio, taxa_are_rows = TRUE), sample_data(ipaq_ps))
+# v = psmelt(dummy_df)
+# t.test(Abundance ~ ipa_quartiles, data = v)
+# ```
+```{r}
+metrics = c("Observed",  "Shannon",  "Fisher")
+plots = list()
+x =1
+for (i in metrics) {
+  p1 <- ggviolin(alpha_metrics,x = "Group",y = i, add = "boxplot", fill = "Group", palette = c("#a6cee3", "#b2df8a")) 
+  a = p1 + stat_compare_means(aes(label = ..p.signif..),size=8,comparisons = list(c("Low-IPA", "High-IPA")), test = "kruskal.test") + geom_point()
+  plt = plot(a)
+  
+  if (x == 5) {
+    plots[[x]] = NULL
+    }
+  
+ 
+  plots[[x]] = plt
+  x = x +1
+  
+}
+part1 = do.call(grid.arrange, c(plots, nrow = 1,ncol=3))
+
+
+metrics = c("Simpson", "Chao1")
+
+plots = list()
+x =1
+for (i in metrics) {
+  p1 <- ggviolin(alpha_metrics,x = "Group",y = i, add = "boxplot", fill = "Group", palette = c("#a6cee3", "#b2df8a")) 
+  a = p1 + stat_compare_means(aes(label = ..p.signif..),size=8,comparisons = list(c("Low-IPA", "High-IPA")), test = "kruskal.test") + geom_point()
+  plt = plot(a)
+  plots[[x]] = plt
+  x = x +1
+  
+}
+b = do.call(grid.arrange, c(plots, nrow = 1,ncol=2))
+
+
+#do.call(grid.arrange, c(a,b, nrow = 1,ncol=1))
+
+img = plot_grid(part1, b, ncol = 1)
+plot(img)
+```
+
+
+```{r}
+print("Alpha-Diversity Analysis Executed")
+print("Export for microbiomenalyst, OTU Table filtered but not glom_merged has been used to create MicrobiomeAnalyst files")
+print("The Exported data are in the directory: ~/Downloads/IPA/microbiomeanalyst/otu")
+
+print("By MicrobiomeAnalyst data has been filtered-normalized obaining a total of 323 OTUs using mean abundance(20%) on 4 samples")
+otu_filt_norm_ptw = "~/Downloads/IPA/microbiomeanalyst/otu/"
+
+```
+
+
+```{r}
+# path = "~/Downloads/WGCNA_Tutorial/docs/code_generated/Picrust_february/" 
+# tax<-as(tax_table(ipaq_ps_filt),"matrix") 
+# tax_cols <- colnames(tax)
+# tax<-as.data.frame(tax) 
+# tax$taxonomy<-do.call(paste, c(tax[tax_cols], sep=";")) 
+# for(co in tax_cols) tax[co]<-NULL
+# write.table(tax, paste0(path,"tax.txt"), quote=FALSE, col.names=FALSE, sep="\t")
+# write.table(otu_table(ipaq_ps_filt), paste0(path,"otu_tab.txt"), sep = "\t")
+# 
+#  
+# 
+# ipaq_ps_filt %>%
+# refseq() %>%
+# Biostrings::writeXStringSet(paste0(path,"asv.fna"), append=FALSE, 
+#  compress=FALSE, compression_level=NA, format="fasta")
+
+
+```
+
+
+```{python}
+otu_filt_norm = pd.read_csv("/home/lorenzo/Downloads/WGCNA_Tutorial/docs/metagenomica/MicrobiomeAnalyst/data_normalized.csv", index_col=0)
+#otu_filt_norm = pd.read_csv("/home/lorenzo/Downloads/data_normalized.csv", index_col = 0)
+```
+
+```{r}
+new_otu_tab = otu_table(py$otu_filt_norm, taxa_are_rows = TRUE)
+ipaq_ps_323 = merge_phyloseq(otu_table(new_otu_tab,taxa_are_rows = TRUE), tax_table(ipaq_ps_filt), sample_data(ipaq_ps_filt),phy_tree(ipaq_ps_filt), refseq((refseq(ipaq_ps_filt))))
+```
+
+
+```{r}
+# tax_tab = tax_table(ipaq_ps)
+# gens = c("Sutterella_wadsworthensis","metagenome","uncultured_bacterium", "uncultured_rumen", "uncultured_Firmicutes" , "uncultured_organism")
+# to_exclude = tax_tab[!tax_tab[,"Species"] %in% gens]
+# 
+# ipaq_ps =subset_taxa(ipaq_ps, Species %in% to_exclude)
+```
+
+
+
+                       
+```{r}
+path = paste0(output_dir, "/", "heat_tree")
+if (expmode ==1){
+if (!dir.exists(path)){
+      dir.create(path)
+    }else{
+      print("dir yet exists!")
+    }
+}
+ 
+ ipaq_ps_323_genus = tax_glom(ipaq_ps_323, taxrank = "Genus")
+ try_ <- parse_phyloseq(ipaq_ps_323_genus)
+ try_$data$tax_abund <- calc_taxon_abund(try_, "otu_table")
+  
+  sample_data <-sample_data(ipaq_ps_323_genus)
+  
+  #try_$data$otu_props <- calc_obs_props(try_, "tax_abund", groups = "ipa_quartiles")
+  #try_$data$tax_abund <- calc_taxon_abund(try_, data = "otu_props")
+  
+  try_$data$type_abund <- calc_group_mean(try_, "tax_abund",
+                                          cols = sample_data$SampleID,
+                                          groups = sample_data$Group)
+  try_$data$diff_table <-  compare_groups(try_, data = "tax_abund", col = rownames(sample_data), groups = sample_data$Group)
+# 
+# to_plot <- try_ %>%
+#   taxa::filter_taxa(grepl(pattern = "^[a-zA-Z]+$", taxon_names), reassign_obs = FALSE) %>%
+#   taxa::filter_taxa(taxon_ranks == "c", supertaxa = TRUE, reassign_obs = FALSE) 
+
+heattree_pic = heat_tree(try_,
+          node_label = ifelse((wilcox_p_value <= 0.055), taxon_names, NA),
+          node_size = n_obs,
+          node_color_range = c("royalblue3","turquoise4","yellow3"),
+          #node_color_range = c("royalblue3","red"),
+          #node_color_range = c("blue", "red"),
+          node_color = log2_median_ratio,
+          node_color_trans = "linear",
+          node_label_size =3,
+          #layout = "davidson-harel", # The primary layout algorithm
+          initial_layout = "reingold-tilford",
+          node_legend_title = "Nodes",
+          edge_legend_title = "Edges",
+          repel_labels = TRUE, 
+          repel_force = 5,
+          overlap_avoidance = 0.8,
+          title = "High-IPA vs Low-IPA",
+          node_color_axis_label = "Median Ratio (log2)",
+          node_size_axis_label = "Observed"
+)
+
+#PLOT EXPORT
+if (expmode ==1) {
+  file =  paste0(path, "/","heat_tree.png")
+  ggsave(file , heattree_pic ,width=17.29,height=11.13,dpi=300, limitsize = FALSE, bg = "white")
+  }
+
+#Data Export
+signif_taxon_diff <- (try_$data$diff_table[try_$data$diff_table[,"wilcox_p_value"] < 0.055,])
+# Add taxon name
+signif_taxon_diff$taxon_name <- taxon_names(try_)[signif_taxon_diff$taxon_id]
+signif_taxon_diff
+if(expmode ==1){write.xlsx(signif_taxon_diff, paste0(path,"/", "heat_tree_statistics.xlsx"), row.names=1)}
+
+```
+
+
+
+```{r Bar-plot composizione microbica, include=FALSE}
+#Find n most rapresented Taxa 
+tax_lv = "Class" 
+
+ipaq_ps_cp <- ipaq_ps_323#Make copy
+sample_data(ipaq_ps_cp)$ipa_q <- "q1" #same metadata for all samples
+glom_merged <- merge_samples(ipaq_ps_cp,"ipa_q") #merge-samples for total abundance
+
+glom_mergerd = transform_sample_counts(glom_merged, function(x) x/sum(x))#make rel abundances
+
+glom<- tax_glom(glom_merged, taxrank = tax_lv) #merge genus count
+
+data <- psmelt(glom) # create dataframe from phyloseq object
+data[,tax_lv]<- as.character(data[,tax_lv]) #convert to character
+data <- data[order(data$Abundance, decreasing = T),]#Ordering 
+
+
+n=10
+top_n <- data[1:n,tax_lv]
+
+##Una volta ottenuti i Taxa procediamo con i Bar_plot
+
+glom <- tax_glom(ipaq_ps_323, taxrank = tax_lv) #merge genus count
+glom <- transform_sample_counts(glom, function(x) x/sum(x))#make rel abundances
+data2 <- psmelt(glom) #create dataframe from phyloseq object
+data2[,tax_lv] <- as.character(data2[,tax_lv]) #convert to character
+data2[!data2[,tax_lv] %in% top_n, tax_lv] <- "other" 
+#data[length(row.names(data)),"Genus"] <- "other"
+top_n <- append(top_n,"other")
+#data2[,tax_lv] = factor(data2[,tax_lv], levels = top_n)
+#taxa = "Genus" #"Genus"  #"Genus"  #"Kingdom" "Phylum"  "Class"   "Order"   "Family"  "Genus"   "Species"
+
+
+p <- ggplot(data=data2, aes(x=Sample, y=Abundance, fill = Class))
+barplt = p + geom_bar(aes(), stat="identity", position="stack", color = "black") +  scale_fill_manual(values = c("darkorchid","darkgreen", "darkseagreen","turquoise4",  
+                                          "khaki2","darksalmon","orange" ,"firebrick",  "darksalmon" , "darkolivegreen1",
+                                          "yellow3", "brown1", "darkorange1", "cyan1",  "deeppink"  ,"gold1", "violet","green","black","orange","yellow")) +
+                                            facet_grid(~Group, scale="free",labeller = as_labeller(c("Low-IPA" = "Low-IPA","High-IPA" ="High-IPA"))) +  theme(panel.grid.major = element_blank(), 
+                                                                                                                                                   panel.grid.minor = element_blank(),
+                                                                                                                                                   panel.background = element_blank(),
+                                                                                           
+                                                                                                                                                   
+                                                                                                                                                                                                           legend.position = "right",
+                                                                                                                                                   
+                                                                                                                                                   axis.line = element_line(colour = "black"))  + 
+   guides(fill=guide_legend(nrow=21)) +
+  xlab("Sample ID") + ylab("Relative Abundance")
+
+if (expmode ==1) {
+  file =  paste0(output_dir, "/","barplot.png")
+  ggsave(file , barplt)# ,width=17.29,height=11.13,dpi=300, limitsize = FALSE, bg = "white")
+  }
+
+```
+
+
+```{r Bar-plot composizione microbica, include=FALSE}
+#Find n most rapresented Taxa 
+tax_lv = "Genus" 
+
+ipaq_ps_cp <- ipaq_ps_323#Make copy
+sample_data(ipaq_ps_cp)$ipa_q <- "q1" #same metadata for all samples
+glom_merged <- merge_samples(ipaq_ps_cp,"ipa_q") #merge-samples for total abundance
+
+glom<- tax_glom(glom_merged, taxrank = tax_lv) #merge genus count
+glom = transform_sample_counts(glom, function(x) x/sum(x))#make rel abundances
+
+
+data <- psmelt(glom) # create dataframe from phyloseq object
+data[,tax_lv]<- as.character(data[,tax_lv]) #convert to character
+data <- data[order(data$Abundance, decreasing = T),]#Ordering 
+
+
+n=20
+top_n <- data[1:n,tax_lv]
+
+##Una volta ottenuti i Taxa procediamo con i Bar_plot
+glom = ipaq_ps_323
+View(sample_data(glom))
+sample_data(glom)$Group = factor(sample_data(glom)$Group, ordered = F)
+sample_data(glom)$Group
+
+
+glom = merge_samples(glom, "Group")
+glom<- tax_glom(glom, taxrank = tax_lv) #merge genus count
+glom = transform_sample_counts(glom, function(x) x/sum(x))#make rel abundances
+
+
+
+
+data2 <- psmelt(glom) #create dataframe from phyloseq object
+data2[,tax_lv] <- as.character(data2[,tax_lv]) #convert to character
+data2[!data2[,tax_lv] %in% top_n, tax_lv] <- "other" 
+#data[length(row.names(data)),"Genus"] <- "other"
+top_n <- append(top_n,"other")
+data2$Genus = factor(data2$Genus, levels = top_n)
+#data2[,tax_lv] = factor(data2[,tax_lv], levels = top_n)
+#taxa = "Genus" #"Genus"  #"Genus"  #"Kingdom" "Phylum"  "Class"   "Order"   "Family"  "Genus"   "Species"
+
+
+p <- ggplot(data=data2, aes(x=Sample, y=Abundance, fill = Genus))
+barplt = p + geom_bar(aes(), stat="identity", position="stack", color = "black") +  scale_fill_manual(values = c("darkorchid","darkgreen", "darkseagreen","turquoise4",  
+                                          "khaki2","darksalmon","orange" ,"firebrick",  "salmon" , "darkolivegreen1",
+                                          "yellow3", "brown1", "darkorange1", "cyan1",  "deeppink"  ,"gold1", "violet","green","orange","yellow", "black")) +
+                                            facet_grid(~Group, scale="free",labeller = as_labeller(c("Low-IPA" = "Low-IPA","High-IPA" ="High-IPA"))) +  theme(panel.grid.major = element_blank(), 
+                                                                                                                                                   panel.grid.minor = element_blank(),
+                                                                                                                                                   panel.background = element_blank(),
+                                                                                           
+                                                                                                                                                   
+                                                                                                                                                                                                           legend.position = "right",
+                                                                                                                                                   
+                                                                                                                                                   axis.line = element_line(colour = "black"))  + 
+   guides(fill=guide_legend(nrow=21)) +
+  xlab("Sample ID") + ylab("Relative Abundance")
+
+if (expmode ==1) {
+  file =  paste0(output_dir, "/","barplot.png")
+  ggsave(file , barplt)# ,width=17.29,height=11.13,dpi=300, limitsize = FALSE, bg = "white")
+  }
+
+```
+
+
+
+```{r}
+print("Barplot Executed. At this point the above code has been used to generate a biom table with sequences to use with Picrust2 Pipeline")
+print("The Picrust2 Directory used is: ~/Downloads/IPA/metagenomica/Picrust/323_OTU/")
+print("Standard Picrust2 Pipeline has benn executed")
+```
+
+
+<!-- ```{python} -->
+<!-- otu_filt_norm = pd.read_csv("~/Downloads/IPA/microbiomeanalyst/otu/data_normalized.csv", index_col=0) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- new_otu_tab = otu_table(py$otu_filt_norm, taxa_are_rows = TRUE) -->
+<!-- ipaq_ps= merge_phyloseq(otu_table(new_otu_tab,taxa_are_rows = TRUE), tax_table(ipaq_ps_filt), sample_data(ipaq_ps_filt),phy_tree(ipaq_ps_filt), refseq((refseq(ipaq_ps_filt)))) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- path = "~/Downloads/WGCNA_Tutorial/docs/code_generated/Picrust/" -->
+<!-- tax<-as(tax_table(ipaq_ps_323),"matrix") -->
+<!-- tax_cols <- colnames(tax) -->
+<!-- tax<-as.data.frame(tax) -->
+<!-- tax$taxonomy<-do.call(paste, c(tax[tax_cols], sep=";")) -->
+<!-- for(co in tax_cols) tax[co]<-NULL -->
+<!-- write.table(tax, paste0(path,"tax.txt"), quote=FALSE, col.names=FALSE, sep="\t") -->
+<!-- write.table(otu_table(ipaq_ps_323), paste0(path,"otu_tab.txt"), sep = "\t") -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- ipaq_ps_323 %>% -->
+<!--       refseq() %>% -->
+<!--       Biostrings::writeXStringSet(paste0(path,"asv.fna"), append=FALSE, -->
+<!--                                   compress=FALSE, compression_level=NA, format="fasta") -->
+<!-- ``` -->
+
+
+```{r}
+print("importing Picrust Output for Analysis")
+picrust2 = "~/Downloads/WGCNA_Tutorial/docs/code_generated/Picrust/picrust2_out_pipeline/"
+#list.files(picrust2, recursive = TRUE)
+```
+
+```{r}
+p2_EC = paste0(picrust2, "/EC_metagenome_out/pred_metagenome_unstrat.tsv.gz")
+p2_KO = paste0(picrust2, "/KO_metagenome_out/pred_metagenome_unstrat.tsv.gz")
+p2_PW = paste0(picrust2, "/pathways_out/path_abun_unstrat.tsv.gz")
+```
+
+```{r}
+mapfile = "/home/lorenzo/picrust2-2.5.2/picrust2/default_files/description_mapfiles/"
+list.files(mapfile, recursive = TRUE)
+```
+
+```{r}
+mapfile_EC = paste0(mapfile, "/ec_level4_info.tsv.gz")
+mapfile_KO = paste0(mapfile, "/ko_info.tsv.gz")
+mapfile_PW = paste0(mapfile, "/metacyc_pathways_info.txt.gz")
+```
+
+```{r}
+mapEC = as.data.frame(fread(mapfile_EC, header = FALSE))
+colnames(mapEC) = c("function","description")
+mapKO = as.data.frame(fread(mapfile_KO, header = FALSE, sep = "\t"))
+colnames(mapKO) = c("function","description")
+mapPW = as.data.frame(fread(mapfile_PW, header = FALSE))
+colnames(mapPW) = c("pathway","description")
+```
+
+```{r}
+p2EC = as.data.frame(fread(p2_EC, header = TRUE))
+rownames(p2EC) = p2EC$"function"
+p2EC = as.matrix(p2EC[,-1])
+p2EC = round(p2EC)
+
+p2KO = as.data.frame(fread(p2_KO, header = TRUE))
+rownames(p2KO) = p2KO$"function"
+p2KO = as.matrix(p2KO[,-1])
+p2KO = round(p2KO)
+
+p2PW = as.data.frame(fread(p2_PW,header =TRUE))
+rownames(p2PW) = p2PW$"pathway"
+p2PW = as.matrix(p2PW[,-1])
+p2PW = round(p2PW)
+#colnames(p2PW) = p2PW[1,]
+#p2PW = p2PW[2:nrow(p2PW),]
+```
+
+```{r}
+p2EC1 = p2EC[,sample_names(ipaq_ps_323)]
+p2KO1 = p2KO[,sample_names(ipaq_ps_323)]
+p2PW1 = p2PW[,sample_names(ipaq_ps_323)]
+```
+
+```{r}
+a = otu_table(p2PW1, taxa_are_rows = TRUE)
+#a = microbiomeMarker::normalize(a,"CLR")
+b = otu_table(a)
+b = as.data.frame(t(b))
+b[,"Group"] = sample_data(ipaq_ps_323)$Group
+
+metd = "BH"
+w = c()
+pathway = c()
+pvals <- c()
+for (ptw in colnames(b)) {
+  if(ptw != "Group"){
+  res = wilcox.test(b[,ptw] ~ b[,"Group"], data = b)
+  pval = res$p.value
+  w_val = res$statistic
+  
+  w = append(w,w_val)
+  pvals = append(pvals, pval)
+  pathway = append(pathway, ptw)
+  }
+}
+
+bH = p.adjust(pvals, method = "BH")
+res = cbind(pathway, w,pvals,bH)
+ress = merge(res,mapPW, by = "pathway")
+
+```
+
+
+```{r}
+
+path = paste0(output_dir, "/", "Picrust2")
+st_res = ress[order(ress$pvals),]
+sig_ft = st_res[st_res[,"bH"]<= 0.051,"pathway"]
+
+
+for (ft in sig_ft) {
+  
+  
+  y_lab = ress[ress["pathway"] == ft,"description"]
+  file = paste0(path,"/","all_results/", y_lab,".png")
+  a = ggplot(b, aes(x=Group, y=get(ft), fill = Group)) + geom_boxplot() + geom_point() + ylab(y_lab)
+  if (expmode ==1) {ggsave(a, filename = file)}
+}
+
+if (expmode ==1) {
+  write.xlsx(ress, file = paste0(path, "/Results.xlsx"), row.names = 1)
+}
+```
+
+```{python}
+row_names = r.b
+good = r.st_res
+sig_ft_new = good[good["pathway"].isin(r.sig_ft)].description.to_list()
+good.index = good.pathway.to_list()
+good.loc["Group"] = 5*["Group"]
+good = good.loc[row_names.columns.to_list()]
+row_names.columns = good.description.to_list()
+
+```
+
+
+```{r}
+b = py$row_names
+a = pivot_longer(b, cols = (py$sig_ft_new), names_to = "var", values_to = "value")%>%
+  ggplot() + geom_boxplot(aes(x=var,y = value, fill = Group))  + ylab(y_lab) +  coord_flip() + scale_fill_manual(values = c("red", "blue"))
+
+plot(a)
+
+if (expmode == 1) {ggsave(a, filename = paste0(path, "/Results.png"), width = 40, height = 36, units = "cm")}
+
+```
+
+<!-- ```{python} -->
+<!-- otu_filt_norm = pd.read_csv("~/Downloads/IPA/microbiomeanalyst/otu/data_normalized.csv", index_col=0) -->
+<!-- #otu_filt_norm = pd.read_csv("/home/lorenzo/Downloads/data_normalized.csv", index_col = 0) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- new_otu_tab = otu_table(py$otu_filt_norm, taxa_are_rows = TRUE) -->
+
+<!-- dt = otu_table(ipaq_ps_filt) -->
+<!-- dt = dt[row.names(dt) %in% row.names(new_otu_tab),] -->
+
+<!-- #z = dt[row.names(dt) %in% c("c6c268b1fb9220f61fdf9159afa26488", "813f8b70298e9196fb0f52717209ac75"),] -->
+
+<!-- merged = merge_phyloseq(otu_table(dt,taxa_are_rows = TRUE), tax_table(ipaq_ps_filt), sample_data(ipaq_ps_filt),phy_tree(ipaq_ps_filt), refseq((refseq(ipaq_ps_filt)))) -->
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+
+<!-- sample_data(ps)$indolepropionate = as.factor(sample_data(ps)$indolepropionate)   -->
+<!-- res = ancombc2(merged, fix_formula = "ipa_quartiles + BMI",  group = "ipa_quartiles", tax_level = "Species", p_adj_method = "fdr", global = TRUE) -->
+
+<!-- cacca = (res$res$diff_abn) -->
+<!-- taxa = cacca[cacca$ipa_quartilesq3 <= 0.05,"taxon"] -->
+<!-- z = dt[row.names(dt) %in% taxa,] -->
+<!-- merged = merge_phyloseq(otu_table(z,taxa_are_rows = TRUE), tax_table(ipaq_ps_filt), sample_data(ipaq_ps_filt),phy_tree(ipaq_ps_filt), refseq((refseq(ipaq_ps_filt)))) -->
+<!-- View(tax_table(merged)) -->
+
+
+<!-- ress = res$res -->
+<!-- res_global = res$res_global -->
+
+
+<!-- tab_lfc = ress$lfc -->
+<!-- ``` -->
+<!-- ``` -->
+
+<!-- Picrust2 -filtered - not normalized -->
+
+<!-- !! -->
+<!-- ```{python} -->
+<!-- otu_filt_norm = pd.read_csv("/home/lorenzo/Downloads/IPA/microbiomeanalyst/otu/data_filtered.csv", index_col=0) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- new_otu_tab = otu_table(py$otu_filt_norm, taxa_are_rows = TRUE) -->
+
+<!-- ipaq_ps= merge_phyloseq(otu_table(new_otu_tab,taxa_are_rows = TRUE), tax_table(ipaq_ps_filt), sample_data(ipaq_ps_filt),phy_tree(ipaq_ps_filt), refseq((refseq(ipaq_ps_filt)))) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+<!-- path = "~/Downloads/IPA/metagenomica/Picrust_prova/" -->
+<!-- tax<-as(tax_table(ipaq_ps),"matrix") -->
+<!-- tax_cols <- colnames(tax) -->
+<!-- tax<-as.data.frame(tax) -->
+<!-- tax$taxonomy<-do.call(paste, c(tax[tax_cols], sep=";")) -->
+<!-- for(co in tax_cols) tax[co]<-NULL -->
+<!-- write.table(tax, paste0(path,"tax.txt"), quote=FALSE, col.names=FALSE, sep="\t") -->
+
+
+<!-- write.table(otu_table(ipaq_ps), paste0(path,"otu_tab.txt"), sep = "\t") -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- ipaq_ps %>% -->
+<!--       refseq() %>% -->
+<!--       Biostrings::writeXStringSet(paste0(path,"asv.fna"), append=FALSE, -->
+<!--                                   compress=FALSE, compression_level=NA, format="fasta") -->
+<!-- ``` -->
+
+
+
+
+
+<!-- Picrust2 - filtered - Rarefied -->
+
+
+<!-- !! -->
+<!-- ```{python} -->
+<!-- otu_filt_norm = pd.read_csv("/home/lorenzo/Downloads/IPA/microbiomeanalyst/otu/data_filtered.csv", index_col=0) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- new_otu_tab = otu_table(py$otu_filt_norm, taxa_are_rows = TRUE) -->
+
+<!-- ipaq_ps= merge_phyloseq(otu_table(new_otu_tab,taxa_are_rows = TRUE), tax_table(ipaq_ps_filt), sample_data(ipaq_ps_filt),phy_tree(ipaq_ps_filt), refseq((refseq(ipaq_ps_filt)))) -->
+<!-- ``` -->
+<!-- ```{r} -->
+<!-- picrust_rarefied = rarefy_even_depth(ipaq_ps, sample.size = min(sample_sums(ipaq_ps)), rngseed = 1, replace = F, trimOTUs = F, verbose = TRUE) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+<!-- path = "~/Downloads/IPA/metagenomica/Picrust_rarefied/" -->
+<!-- tax<-as(tax_table(picrust_rarefied),"matrix") -->
+<!-- tax_cols <- colnames(tax) -->
+<!-- tax<-as.data.frame(tax) -->
+<!-- tax$taxonomy<-do.call(paste, c(tax[tax_cols], sep=";")) -->
+<!-- for(co in tax_cols) tax[co]<-NULL -->
+<!-- write.table(tax, paste0(path,"tax.txt"), quote=FALSE, col.names=FALSE, sep="\t") -->
+
+
+<!-- write.table(otu_table(picrust_rarefied), paste0(path,"otu_tab.txt"), sep = "\t") -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- picrust_rarefied %>% -->
+<!--       refseq() %>% -->
+<!--       Biostrings::writeXStringSet(paste0(path,"asv.fna"), append=FALSE, -->
+<!--                                   compress=FALSE, compression_level=NA, format="fasta") -->
+<!-- ``` -->
+
+
+
+
+
+
+
+<!-- ```{python correlazioni alpha-diversity-clinica, eval=FALSE, include=FALSE} -->
+<!-- clins_of_interest = pd.read_csv("/home/lorenzo/Downloads/IPA/metabolomica/per metaboanalyst/metadata.csv", index_col = 0) -->
+<!-- alpha_metrics = r.alpha_metrics -->
+<!-- alpha_metrics.index = [x[1:] for x in alpha_metrics.index.to_list()] -->
+<!-- alpha_metrics.index =  alpha_metrics.index.astype(int).to_list() -->
+<!-- clins_of_interest["indolepropionate"] = clin_data.loc[clins_of_interest.index.to_list()].indolepropionate.to_list() -->
+<!-- alpha_metrics = alpha_metrics[["Observed", "ACE", "Fisher", "Chao1"]] -->
+
+
+<!-- analysis_df = pd.merge(clins_of_interest, alpha_metrics, left_index = True, right_index = True) -->
+
+<!-- res = ping.pairwise_corr(analysis_df, columns = [["Observed", "ACE", "Fisher", "Chao1"], None], method ="spearman",  padjust ="fdr") -->
+<!-- ``` -->
+
+
+
+
+
+
+<!-- ```{python correlazioni indolepropionate OTU, eval=FALSE, include=FALSE} -->
+<!-- ipa = clin_data[["indolepropionate", "bmi"]] -->
+<!-- names = r.names -->
+<!-- cols = r.columns -->
+<!-- cols = [int(x) for x in cols] -->
+<!-- otu_tab = pd.DataFrame(r.otu_tab) -->
+<!-- tax = pd.DataFrame(r.tax) -->
+
+
+<!-- otu_tab.index = names -->
+<!-- otu_tab.columns = cols -->
+<!-- otu_tab = otu_tab.T -->
+<!-- analysis_df = pd.merge(ipa,otu_tab, left_index = True, right_index = True) -->
+
+<!-- res = ping.pairwise_corr(analysis_df, columns = ["indolepropionate"], method ="pearson",  padjust ="fdr") -->
+<!-- ``` -->
+
+
+
+
+
+
+
+
+
+<!-- ```{r CSS transformation, include=FALSE} -->
+<!-- ipaq_ps_trans = normalize(ipaq_ps, method = "TSS") -->
+<!-- ``` -->
+
+
+
+<!-- ```{r Deseq2 dati filtrati ma non normalizzati} -->
+
+
+<!-- library(DESeq2) -->
+
+<!-- ipaq_deseq <- ipaq_ps -->
+
+<!-- otu_table(ipaq_deseq) <- otu_table(ipaq_deseq) + 1 -->
+<!-- diagdds = phyloseq_to_deseq2(ipaq_deseq, ~ ipa_quartiles) -->
+
+
+<!-- diagdds2 = (varianceStabilizingTransformation(diagdds, blind = FALSE, fitType = "parametric")) -->
+<!-- #ps_deseq = merge_phyloseq(otu_table(diagdds2, taxa_are_rows = TRUE), tax_table(ipaq_ps), sample_data(ipaq_ps)) -->
+<!-- #diagdds = phyloseq_to_deseq2(ps_deseq, ~ ipa_quartiles) -->
+<!-- diagdds = DESeq(diagdds, test="Wald", fitType="parametric") -->
+
+<!-- res = results(diagdds, cooksCutoff = FALSE) -->
+<!-- alpha = 0.05 -->
+<!-- sigtab = res[which(res$padj < alpha), ] -->
+<!-- sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ipaq_deseq)[rownames(sigtab), ], "matrix")) -->
+
+<!-- sigtab = sigtab[!is.na(sigtab$Genus),] -->
+
+
+<!-- library("ggplot2") -->
+<!-- theme_set(theme_bw()) -->
+<!-- scale_fill_discrete <- function(palname = "Set1", ...) { -->
+<!--   scale_fill_brewer(palette = palname, ...) -->
+<!-- } -->
+<!-- # Phylum order -->
+<!-- x = tapply(sigtab$log2FoldChange, sigtab$Genus, function(x) max(x)) -->
+<!-- x = sort(x, TRUE) -->
+<!-- sigtab$Genus = factor(as.character(sigtab$Genus), levels=names(x)) -->
+<!-- a = ggplot(sigtab, aes(x=Genus, y=log2FoldChange, color=Family)) + geom_point(size=4, aes(x=Genus,y=log2FoldChange, shape= Phylum)) +  -->
+<!--   theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) -->
+
+
+
+<!-- ``` -->
+
+
+<!-- ```{r Create Ps-object with only sig_feats} -->
+<!-- my_subset <- otu_table(ps_rf) -->
+<!-- my_subset = (my_subset[row.names(my_subset) %in% row.names(sigtab)]) -->
+<!-- new_physeq <- merge_phyloseq(otu_table(my_subset), tax_table(ps_rf), sample_data(ps_rf),refseq(ps_rf)) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+<!-- names =row.names(otu_table(new_physeq)) -->
+<!-- columns = colnames(otu_table(new_physeq)) -->
+<!-- otu_tab = otu_table(new_physeq) -->
+<!-- tax = tax_table(new_physeq) -->
+<!-- ``` -->
+
+
+
+
+
+<!-- ```{python correlazioni indolepropionate OTU, eval=FALSE, include=FALSE} -->
+<!-- ipa = clin_data[["indolepropionate", "bmi"]] -->
+<!-- names = r.names -->
+<!-- cols = r.columns -->
+<!-- cols = [int(x) for x in cols] -->
+<!-- otu_tab = pd.DataFrame(r.otu_tab) -->
+<!-- tax = pd.DataFrame(r.tax) -->
+
+
+<!-- otu_tab.index = names -->
+<!-- otu_tab.columns = cols -->
+<!-- otu_tab = otu_tab.T -->
+<!-- analysis_df = pd.merge(ipa,otu_tab, left_index = True, right_index = True) -->
+
+<!-- res = ping.pairwise_corr(analysis_df, columns = ["indolepropionate"], method ="pearson",  padjust ="fdr") -->
+<!-- ``` -->
+
+
+
+
+
+<!-- ```{r} -->
+<!-- plotPCA(diagdds2, intgroup ="ipa_quartiles") -->
+<!-- ``` -->
+
+
+
+
+<!-- ```{r Deseq2 dati filtrati ma non normalizzati} -->
+
+<!-- ps_gen <- tax_glom(ipaq_ps, taxrank = "Family", NArm = TRUE) -->
+
+
+
+<!-- ipaq_deseq <- ps_gen -->
+<!-- otu_table(ipaq_deseq) <- otu_table(ipaq_deseq) + 1 -->
+<!-- diagdds = phyloseq_to_deseq2(ipaq_deseq, ~ ipa_quartiles) -->
+
+<!-- diagdds2 = assay(varianceStabilizingTransformation(diagdds, blind = FALSE, fitType = "parametric")) -->
+<!-- ps_deseq = merge_phyloseq(otu_table(diagdds2, taxa_are_rows = TRUE), tax_table(ipaq_ps), sample_data(ipaq_ps)) -->
+<!-- diagdds = phyloseq_to_deseq2(ps_deseq, ~ ipa_quartiles) -->
+<!-- diagdds = DESeq(diagdds, test="Wald", fitType="parametric") -->
+
+<!-- res = results(diagdds, cooksCutoff = FALSE) -->
+<!-- alpha = 0.05 -->
+<!-- sigtab = res[which(res$padj < alpha), ] -->
+<!-- sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ipaq_deseq)[rownames(sigtab), ], "matrix")) -->
+
+
+
+
+<!-- library("ggplot2") -->
+<!-- theme_set(theme_bw()) -->
+<!-- scale_fill_discrete <- function(palname = "Set1", ...) { -->
+<!--   scale_fill_brewer(palette = palname, ...) -->
+<!-- } -->
+<!-- # Phylum order -->
+<!-- x = tapply(sigtab$log2FoldChange, sigtab$Genus, function(x) max(x)) -->
+<!-- x = sort(x, TRUE) -->
+<!-- sigtab$Genus = factor(as.character(sigtab$Genus), levels=names(x)) -->
+<!-- a = ggplot(sigtab, aes(x=Family, y=log2FoldChange, color=Order)) + geom_point(size=4, aes(x=Family,y=log2FoldChange, shape= Phylum)) +  -->
+<!--   theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) -->
+
+
+
+<!-- ``` -->
+
+
+<!-- ```{r Create Ps-object with only sig_feats} -->
+<!-- my_subset <- otu_table(ipaq_ps_filt) -->
+<!-- my_subset = (my_subset[row.names(my_subset) %in% row.names(sigtab)]) -->
+<!-- new_physeq <- merge_phyloseq(otu_table(my_subset), tax_table(ipaq_ps_filt), sample_data(ipaq_ps_filt),refseq(ipaq_ps_filt)) -->
+<!-- ``` -->
+
+
+
+
+
+<!-- Non molto utile qui -->
+<!-- ```{r CSS transformation, include=FALSE} -->
+<!-- ipaq_ps_trans = normalize(ipaq_ps, method = "TSS") -->
+<!-- ``` -->
+
+
+
+<!-- ```{r Lefse dati filtrati ma non normalizzati} -->
+
+
+<!-- lef_out<-run_lefse(ipaq_ps, group = "ipa_quartiles", norm = "CPM", kw_cutoff = 0.025, lda_cutoff = 2, taxa_rank = "all") -->
+
+<!-- lef_out -->
+
+
+<!-- a = plot_ef_bar(lef_out) -->
+
+
+<!-- b = plot_cladogram(lef_out, color = c("red","blue"),only_marker = T,clade_label_font_size = 3, clade_label_level = 6, alpha=0.05) -->
+<!-- ``` -->
+
+
+
+
+
+
+<!-- ```{r} -->
+<!-- mm_lefse <- run_lefse( -->
+<!--     ipaq_ps, -->
+<!--     wilcoxon_cutoff = 0.05, -->
+<!--     group = "ipa_quartiles", -->
+<!--     kw_cutoff = 0.05, -->
+<!--     lda_cutoff = 4 -->
+<!-- ) -->
+<!-- plot_cladogram(mm_lefse, color = c("darkgreen", "red")) -->
+
+
+<!-- ``` -->
+
+
+
+
+
+
+
+
+
+
+
+<!-- ```{python import MicrobiomeAnalyst - Filtered Data} -->
+<!-- ps_ma = pd.read_csv("/home/lorenzo/Downloads/IPA/microbiomeanalyst/output_files/data_filtered.csv", index_col = 0) -->
+<!-- ``` -->
+
+<!-- ```{r Import Metaboanalyst Filtered-normalized data, include=FALSE} -->
+
+<!-- ps_ma <- otu_table(py$ps_ma,taxa_are_rows = TRUE) -->
+<!-- ipaq_ps= merge_phyloseq(otu_table(ps_ma,taxa_are_rows = TRUE), tax_table(ipaq_ps), sample_data(ipaq_ps),phy_tree(ipaq_ps), refseq((refseq(ipaq_ps)))) -->
+
+<!-- ipaq_ps_filt <- subset_taxa(ipaq_ps, !is.na(Genus)) -->
+<!-- ipaq_ps_filt <- subset_taxa(ipaq_ps_filt, !Genus %in% c("", "Unassigned", "uncultured")) -->
+<!-- ipaq_ps_filt <- subset_taxa(ipaq_ps_filt, !is.na(Phylum)) -->
+<!-- ipaq_ps_filt <- subset_taxa(ipaq_ps_filt, !Phylum %in% c("", "uncharacterized")) -->
+<!-- ipaq_ps_filt <- subset_taxa(ipaq_ps_filt, !is.na(Kingdom)) -->
+<!-- ipaq_ps_filt <- subset_taxa(ipaq_ps_filt, !Kingdom %in% c("", "Unassigned")) -->
+
+
+<!-- ipaq_ps <- subset_samples(ipaq_ps_filt, ipa_quartiles != "q2") -->
+
+<!-- ipaq_ps_filt <-rarefy_even_depth(ipaq_ps, sample.size = min(sample_sums(ipaq_ps)), rngseed = 1, replace = F, trimOTUs = F, verbose = TRUE) -->
+<!-- ipaq_ps_filt <- tax_glom(ipaq_ps_filt, taxrank = "Genus") -->
+
+<!-- #Rarefaction -->
+
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+<!-- r_otu_tab = data.frame(otu_table(ipaq_ps_filt)) -->
+<!-- index_names = rownames(otu_table(ipaq_ps_filt)) -->
+<!-- ``` -->
+
+<!-- ```{python} -->
+<!-- py_otu_tab = pd.DataFrame(r.r_otu_tab) -->
+<!-- py_otu_tab.index = r.index_names  -->
+
+<!-- py_otu_tab_mask = py_otu_tab.mask(py_otu_tab !=0, 1) -->
+
+<!-- sums = py_otu_tab_mask.sum(axis=1) -->
+<!-- py_otu_tab_mask["sums"] = sums -->
+<!-- sig_feats = py_otu_tab_mask[py_otu_tab_mask["sums"] > 5].index.to_list() -->
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+<!-- my_subset <- otu_table(ipaq_ps_filt) -->
+<!-- my_subset = (my_subset[row.names(my_subset) %in% py$sig_feats]) -->
+<!-- ipaq_ps_filt <- merge_phyloseq(otu_table(my_subset), tax_table(ipaq_ps_filt), sample_data(ipaq_ps_filt),refseq(ipaq_ps_filt)) -->
+<!-- ``` -->
+
+
+
+
+<!-- ```{r Deseq2}e -->
+<!-- ipaq_deseq <- ipaq_ps -->
+<!-- otu_table(ipaq_deseq) <- otu_table(ipaq_deseq) + 1 -->
+<!-- diagdds = phyloseq_to_deseq2(ipaq_deseq, ~ ipa_quartiles) -->
+<!-- diagdds = DESeq(diagdds, test="Wald", fitType="parametric") -->
+
+<!-- res = results(diagdds, cooksCutoff = FALSE) -->
+<!-- alpha = 0.25 -->
+<!-- sigtab = res[which(res$padj < alpha), ] -->
+<!-- sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ipaq_deseq)[rownames(sigtab), ], "matrix")) -->
+
+
+
+
+<!-- library("ggplot2") -->
+<!-- theme_set(theme_bw()) -->
+<!-- scale_fill_discrete <- function(palname = "Set1", ...) { -->
+<!--   scale_fill_brewer(palette = palname, ...) -->
+<!-- } -->
+<!-- # Phylum order -->
+<!-- x = tapply(sigtab$log2FoldChange, sigtab$Genus, function(x) max(x)) -->
+<!-- x = sort(x, TRUE) -->
+<!-- sigtab$Genus = factor(as.character(sigtab$Genus), levels=names(x)) -->
+<!-- ggplot(sigtab, aes(x=Genus, y=log2FoldChange, color=Family)) + geom_point(size=4, aes(x=Genus,y=log2FoldChange, shape= Class)) +  -->
+<!--   theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) -->
+
+
+
+<!-- ``` -->
+
+
+<!-- ```{r Create Ps-object with only sig_feats} -->
+<!-- my_subset <- otu_table(ipaq_ps_filt) -->
+<!-- my_subset = (my_subset[row.names(my_subset) %in% row.names(sigtab)]) -->
+<!-- new_physeq <- merge_phyloseq(otu_table(my_subset), tax_table(ipaq_ps_filt), sample_data(ipaq_ps_filt),refseq(ipaq_ps_filt)) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- heat.sample <- plot_taxa_heatmap(new_physew, -->
+<!--                                  subset.top = 70, -->
+<!--                                  VariableA =   "ipa_quartiles",#c("indolepropionate", "ipa_q"),#c("indolepropionate","ipa_q","bmi"),#,#[(length(vars)-6):length(vars)], -->
+<!--                                  heatcolors = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(100), -->
+<!--                                  transformation = "log10", -->
+<!--                                  #cluster_rows = F -->
+<!--                                  #labels_row=new_names -->
+<!--                                  ) -->
+
+<!-- ``` -->
+
+
+
+
+
+<!-- ```{r} -->
+
+<!-- dds <- phyloseq_to_deseq2(ps_gen, design = ~ indolepropionate) -->
+<!-- dds = DESeq(dds) -->
+<!-- res = results(dds, cooksCutoff = FALSE) -->
+<!-- alpha = 1 -->
+<!-- sigtab = res[which(res$padj < alpha), ] -->
+<!-- sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(ipaq_ps_filt)[rownames(sigtab), ], "matrix")) -->
+<!-- ``` -->
+
+
+
+
+
+
+<!-- ```{r Beta-diversity} -->
+<!-- library(vegan) -->
+<!-- #PCoA -->
+<!-- ipaq_ps_trans = ps_gen -->
+
+<!-- #Preparing DATA -->
+<!-- sample_data(ipaq_ps_trans)$Group <- NA -->
+<!-- sample_data(ipaq_ps_trans)$Group[sample_data(ipaq_ps_trans)$ipa_quartiles == "q1"] <- " Low IPA" -->
+<!-- sample_data(ipaq_ps_trans)$Group[sample_data(ipaq_ps_trans)$ipa_quartiles == "q3"] <- "High-IPA" -->
+
+<!-- metadata = sample_data(ipaq_ps_trans) -->
+
+<!-- ord = ordinate(ipaq_ps_trans, method="PCoA", distance = "bray")#), weighted=T) -->
+<!-- p1 <- plot_ordination(ipaq_ps_trans, ord, color = "Group") +  -->
+<!--   geom_point(size=4) +  -->
+<!--   stat_ellipse(aes(group=ipa_quartiles)) + ggtitle("PCoA + bray [Stat:0.8004; Pval: 0.639]") -->
+
+<!-- metadata <- as(sample_data(ipaq_ps_trans), "data.frame") -->
+<!-- adonis2(distance(ipaq_ps_trans, method="bray") ~ Group, -->
+<!--         data = metadata) -->
+
+<!-- ord = ordinate(ipaq_ps_trans, method="PCoA", distance = "jaccard")#), weighted=T) -->
+<!-- p2 <- plot_ordination(ipaq_ps_trans, ord, color = "Group") +  -->
+<!--   geom_point(size=4) +  -->
+<!--   stat_ellipse(aes(group=ipa_quartiles)) + ggtitle("PCoA + jaccard [Stat:0.8999; Pval: 0.601]") -->
+
+<!-- metadata <- as(sample_data(ipaq_ps_trans), "data.frame") -->
+<!-- adonis2(distance(ipaq_ps_trans, method="jaccard") ~ Group, -->
+<!--         data = metadata) -->
+
+
+<!-- ord = ordinate(ipaq_ps_trans, method="PCoA", distance = "wunifrac")#, weighted=T) -->
+<!-- p3 <- plot_ordination(ipaq_ps_trans, ord, color = "Group") +  -->
+<!--   geom_point(size=4) +  -->
+<!--   stat_ellipse(aes(group=ipa_quartiles)) +  ggtitle("PCoA + Unifrac [Stat:1.2017; Pval: 0.052]") -->
+<!-- metadata <- as(sample_data(ipaq_ps_trans), "data.frame") -->
+<!-- set.seed(100) -->
+<!-- adonis2(distance(ipaq_ps_trans, method="unifrac") ~ Group, -->
+<!--         data = metadata) -->
+
+
+<!-- ord = ordinate(ipaq_ps_trans, method="PCoA", distance = "unifrac", weighted=T) -->
+<!-- p4 <- plot_ordination(ipaq_ps_trans, ord, color = "Group") +  -->
+<!--   geom_point(size=4) +  -->
+<!--   stat_ellipse(aes(group=ipa_quartiles)) + ggtitle("PCoA + Unifrac weighted [Stat:0.7; Pval: 0.6]  *") -->
+<!-- metadata <- as(sample_data(ipaq_ps_trans), "data.frame") -->
+<!-- set.seed(10000) -->
+<!-- adonis2(distance(ipaq_ps_trans, method="Wunifrac") ~ Group, -->
+<!--         data = metadata) -->
+
+
+<!-- p1 + p2 + p3 +p4 -->
+
+<!-- ``` -->
+
+
+<!-- p2PW1 -->

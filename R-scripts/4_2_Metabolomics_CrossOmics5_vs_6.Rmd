@@ -1,0 +1,398 @@
+---
+title: "Microbesomics - MetS Metagenomic Signature"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, results="asis")
+```
+
+```{r}
+#Import librerie R
+library(ggplot2)
+library(DESeq2)
+library(vegan)
+library(ggVennDiagram)
+require(gridExtra)
+library(UpSetR)
+library(ComplexUpset)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(ComplexHeatmap)
+library(circlize)
+library(png)
+library(knitr)
+library(Microsoft365R)
+library(microbiomeMarker)
+library(phyloseq)
+library(xlsx)
+library(reticulate)
+use_condaenv("python_env")
+
+py_run_string("
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as sm
+import pingouin as ping           
+")
+```
+
+```{r}
+#Per Gestire il problema dei NA li sostitutiamo con "unknown"
+mtbDt = readRDS("../data/metabolomics/mtbDt5vs6_Pz_adjusted.rds")
+smpDt = readRDS("../data/metabolomics/smpDt5vs6_Pz_adjusted.rds")
+smpDt_ord <- smpDt[order(smpDt$pzID), ]
+mtbDt_ord <- mtbDt[row.names(smpDt_ord), , drop = FALSE]
+```
+
+```{r}
+# --- pacchetti ---
+library(vegan)     # adonis2, vegdist
+library(ggplot2)
+library(scales)
+
+# ----------------------------
+# 1) prepara matrice metaboliti
+# ----------------------------
+X <- as.data.frame(mtbDt_ord)
+
+# rimuovi feature con varianza nulla o tutte NA
+nzv <- sapply(X, function(v) sd(v, na.rm = TRUE) > 0)
+X   <- X[, nzv, drop = FALSE]
+
+# log1p (robusto a zeri)
+X <- log1p(X)
+
+# imputa NA con mediana di colonna (semplice e robusto)
+for (j in seq_len(ncol(X))) {
+  v <- X[[j]]
+  if (anyNA(v)) X[[j]][is.na(v)] <- median(v, na.rm = TRUE)
+}
+
+# standardizza (media=0, sd=1) per feature
+Xz <- scale(X)
+
+# ----------------------------
+# 2) PCoA su distanza Euclidea
+# ----------------------------
+D  <- dist(Xz, method = "euclidean")
+cmd <- cmdscale(D, k = 2, eig = TRUE)
+
+# % varianza spiegata dagli assi
+eig <- cmd$eig[cmd$eig > 0]
+var_exp <- eig / sum(eig)
+pc1_var <- percent(var_exp[1])
+pc2_var <- percent(var_exp[2])
+
+# dataframe per il plot
+grp <- factor(smpDt_ord$`GROUP IGA`, levels = c("5","6"),
+              labels = c("Pre-Bariatric Surgery","Post-Bariatric Surgery"))
+pcoa_df <- data.frame(PC1 = cmd$points[,1],
+                      PC2 = cmd$points[,2],
+                      group = grp)
+
+# ----------------------------
+# 3) PERMANOVA (999 permutazioni)
+# ----------------------------
+perm <- adonis2(D ~ group, data = data.frame(group = grp),
+                permutations = 999, by = "terms")
+
+R2 <- unname(perm$R2[1])
+pv <- unname(perm$`Pr(>F)`[1])
+
+# ----------------------------
+# 4) Plot PCoA
+# ----------------------------
+gg_pcoa <- ggplot(pcoa_df, aes(PC1, PC2, color = group)) +
+  geom_point(size = 2.8, alpha = 0.9) +
+  # opzionale: ellissi per gruppo
+  stat_ellipse(level = 0.68, linewidth = 0.6, alpha = 0.6) +
+  labs(
+    x = paste0("PCoA1 (", pc1_var, ")"),
+    y = paste0("PCoA2 (", pc2_var, ")"),
+    color = NULL,
+    title = " ",
+    subtitle = sprintf("PERMANOVA: R² = %.3f, p = %.4f (999 perms)", R2, pv)
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(face = "bold")
+  )
+
+print(gg_pcoa)
+ggsave("../results/metabolomics/PCoA_metabolomicsBariatricSurgery.png", gg_pcoa, width = 8, height = 6, dpi = 600)
+```
+
+
+```{r}
+metdiffpath = "../results/metabolomics/DifferentialAnalysis/TtestMetabolomic.xlsx"
+
+metAll = as.data.frame(mtbDt_ord)
+
+metAll$groupIGA = as.factor(smpDt_ord$`GROUP IGA`)
+
+cmps = c()
+tpval = c()
+nTot = c()
+nNom = c()
+meanNom = c()
+stNom = c()
+nDen = c()
+meanDen = c()
+stDen = c()
+logFc = c()
+nom = "6"
+den = "5"
+meTmp = metAll[metAll$groupIGA %in% c(nom, den),]
+for (cmp in colnames(metAll)) {
+  if (!cmp %in% "groupIGA") {
+    
+ test_result <- NULL
+tryCatch({
+  test_result <- wilcox.test(meTmp[,cmp] ~ meTmp[,"groupIGA"],paired = TRUE, meTmp)
+}, error = function(e) {
+  cat("Error in processing column", cmp, ": ", e$message, "\n")
+})
+if (!is.null(test_result)) {
+  tpval = append(tpval, test_result$p.value)
+} else {
+  tpval = append(tpval, NA)  # Se c'è un errore, metti NA
+}
+    
+    cmps = append(cmps, cmp)
+    #tpval = append(tpval, test_result$p.value)
+    nTot = append(nTot, nrow(meTmp))
+    nomTmp = meTmp[meTmp[,"groupIGA"] == nom,]
+    nNom = append(nNom, nrow(nomTmp))
+    meanNom = append(meanNom, mean(nomTmp[,cmp]))
+    stNom = append(stNom, sd(nomTmp[,cmp]))
+    
+    
+    denTmp = meTmp[meTmp[,"groupIGA"] == den,]
+    nDen = append(nDen, nrow(denTmp))
+    meanDen = append(meanDen, mean(denTmp[,cmp]))
+    stDen = append(stDen, sd(denTmp[,cmp]))
+    lfc = (mean(nomTmp[,cmp]) - mean(denTmp[,cmp]))
+    logFc = append(logFc, lfc  )
+    
+  }
+
+}
+tpval = as.numeric(tpval)
+fdr = p.adjust((tpval), method = "fdr")
+logFct = log2(abs(logFc))
+logFc = (logFc)
+res = NA
+res = cbind(cmps,nTot, nNom,meanNom, stNom, nDen, meanDen, stDen,logFc, tpval, fdr)
+res = as.data.frame(res)
+colnames(res) = c("cmps", "n",paste0("n_",nom), paste0("mean_",nom), paste0("StDev_",nom), paste0("n_",den), paste0("mean_",den), paste0("StDev",den), "logFc", "p-value", "fdr")
+
+res = res[(res$"p-value") != NaN,]
+res = res[order(res$"p-value"),]
+#xlsx::write.xlsx(res,metdiffpath, sheetName = var,  append = T)
+
+res$log2FC <- log2(
+  (as.numeric(res[[paste0("mean_", den)]]) + 1e-6) /
+  (as.numeric(res[[paste0("mean_", nom)]]) + 1e-6)
+)
+
+
+res
+View(res)
+```
+
+```{r}
+metdiffpath = "../results/metabolomics/DifferentialAnalysis/TtestMetabolomic.xlsx"
+
+metAll = as.data.frame(mtbDt_ord)
+metAll$groupIGA = as.factor(smpDt_ord$`GROUP IGA`)
+
+cmps = c()
+tpval = c()
+nTot = c()
+nNom = c()
+meanNom = c()
+stNom = c()
+nDen = c()
+meanDen = c()
+stDen = c()
+logFc = c()
+
+nom = "6"
+den = "5"
+
+meTmp = metAll[metAll$groupIGA %in% c(nom, den),]
+
+for (cmp in colnames(metAll)) {
+  if (!cmp %in% "groupIGA") {
+
+    test_result <- NULL
+
+    ## ======== CAMBIO MINIMO: usa la versione a due vettori per 'paired' ========
+    tryCatch({
+      nomVec <- meTmp[meTmp$groupIGA == nom, cmp]
+      denVec <- meTmp[meTmp$groupIGA == den, cmp]
+
+      # opzionale ma sicuro: se le lunghezze non coincidono, metti NA
+      if (length(nomVec) != length(denVec)) stop("Vettori non allineati per il paired")
+
+      test_result <- wilcox.test(nomVec, denVec, paired = TRUE)
+    }, error = function(e) {
+      cat("Error in processing column", cmp, ": ", e$message, "\n")
+    })
+    ## ===========================================================================
+    
+    if (!is.null(test_result)) {
+      tpval = append(tpval, test_result$p.value)
+    } else {
+      tpval = append(tpval, NA)  # Se c'è un errore, metti NA
+    }
+
+    cmps   = append(cmps, cmp)
+    nTot   = append(nTot, nrow(meTmp))
+
+    nomTmp   = meTmp[meTmp[,"groupIGA"] == nom,]
+    nNom     = append(nNom, nrow(nomTmp))
+    meanNom  = append(meanNom, mean(nomTmp[,cmp]))
+    stNom    = append(stNom,   sd(nomTmp[,cmp]))
+
+    denTmp   = meTmp[meTmp[,"groupIGA"] == den,]
+    nDen     = append(nDen, nrow(denTmp))
+    meanDen  = append(meanDen, mean(denTmp[,cmp]))
+    stDen    = append(stDen,   sd(denTmp[,cmp]))
+
+    lfc      = (mean(nomTmp[,cmp]) - mean(denTmp[,cmp]))
+    logFc    = append(logFc, lfc)
+  }
+}
+
+tpval = as.numeric(tpval)
+fdr   = p.adjust(tpval, method = "fdr")
+logFct = log2(abs(logFc))
+logFc  = (logFc)
+
+res = cbind(cmps,nTot, nNom,meanNom, stNom, nDen, meanDen, stDen,logFc, tpval, fdr)
+res = as.data.frame(res)
+colnames(res) = c("cmps", "n",paste0("n_",nom), paste0("mean_",nom), paste0("StDev_",nom),
+                  paste0("n_",den), paste0("mean_",den), paste0("StDev",den),
+                  "logFc", "p-value", "fdr")
+
+# pulizia p-value non numerici
+res = res[!is.na(as.numeric(res$`p-value`)), ]
+res = res[order(as.numeric(res$`p-value`)), ]
+
+# xlsx::write.xlsx(res,metdiffpath, sheetName = var,  append = TRUE)
+
+res$log2FC <- log2(
+  (as.numeric(res[[paste0("mean_", nom)]]) + 1e-6) /
+  (as.numeric(res[[paste0("mean_", den)]]) + 1e-6)
+)
+
+res
+View(res)
+
+```
+
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+# Assumiamo che res sia già un data.frame con colonne "cmps", "logFc", "fdr"
+df <- res
+df$logFc <- as.numeric(as.character(df$log2FC))
+df$fdr   <- as.numeric(as.character(df$fdr))
+
+alpha <- 0.05
+df$negLogFDR <- -log10(df$fdr)
+df$Signif <- ifelse(df$fdr <= alpha, "Significant", "Not Significant")
+
+# Volcano plot
+p <- ggplot(df, aes(x = logFc, y = negLogFDR, color = Signif)) +
+  geom_point(alpha = 0.8, size = 2) +
+  scale_color_manual(values = c("Not Significant" = "grey70",
+                                "Significant" = "red")) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+  theme_bw(base_size = 14) +
+  labs(
+    title = "Volcano plot - Metabolomics",
+    x = paste0("log2 Fold Change (", nom, " vs ", den, ")"),
+    y = "-log10(FDR)",
+    color = ""
+  )
+
+# Etichette su tutti i significativi
+p <- p + ggrepel::geom_text_repel(
+  data = subset(df, fdr <= alpha),
+  aes(label = cmps),
+  size = 3,
+  max.overlaps = 50,
+  box.padding = 0.4,
+  show.legend = FALSE
+)
+
+print(p)
+
+# Se vuoi salvare:
+# ggsave("volcano_metabolomics.png", p, width = 8, height = 6, dpi = 300)
+
+```
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+# Assumiamo che res sia già un data.frame con colonne "cmps", "logFc", "fdr"
+df <- res
+df$logFc <- as.numeric(as.character(df$log2FC))
+df$fdr   <- as.numeric(as.character(df$fdr))
+
+alpha <- 0.05
+df$negLogFDR <- -log10(df$fdr)
+df$Signif <- ifelse(df$fdr <= alpha, "Significant", "Not Significant")
+
+# >>> AGGIUNTA: categoria colore in base a direzione e significatività
+df$DirCat <- ifelse(df$fdr <= alpha & df$logFc > 0, "Up",
+               ifelse(df$fdr <= alpha & df$logFc < 0, "Down", "Not Significant"))
+
+# Volcano plot
+p <- ggplot(df, aes(x = logFc, y = negLogFDR, color = DirCat)) +  # <<< cambiato: color = DirCat
+  geom_point(alpha = 0.8, size = 2) +
+  scale_color_manual(values = c("Not Significant" = "grey70",
+                                "Up" = "blue",
+                                "Down" = "red")) +                 # <<< mappa colori richiesta
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+  theme_bw(base_size = 14) +
+  labs(
+    title = "Volcano plot - Metabolomics",
+    x = paste0("log2 Fold Change (", nom, " vs ", den, ")"),
+    y = "-log10(FDR)",
+    color = ""
+  )
+
+# Etichette su tutti i significativi
+p <- p + ggrepel::geom_text_repel(
+  data = subset(df, fdr <= alpha),
+  aes(label = cmps),
+  size = 3,
+  max.overlaps = 50,
+  box.padding = 0.4,
+  show.legend = FALSE
+)
+
+print(p)
+ggsave("../results/metabolomics/volcano_metabolomicsBariatricSurgery.png", p, width = 8, height = 6, dpi = 600)
+
+```
+
+
+
+

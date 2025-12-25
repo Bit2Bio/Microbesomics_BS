@@ -1,0 +1,230 @@
+---
+title: "Microbesomics - MetS Metagenomic Signature"
+output: html_document
+---
+```{r}
+#Import librerie R
+library(ggplot2)
+library(DESeq2)
+library(vegan)
+library(ggVennDiagram)
+require(gridExtra)
+library(openxlsx)
+library(UpSetR)
+library(ComplexUpset)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(ComplexHeatmap)
+library(circlize)
+library(Microsoft365R)
+library(microbiomeMarker)
+library(phyloseq)
+library(xlsx)
+library(reticulate)
+use_condaenv("python_env")
+library(knitr)
+library(writexl)
+library("ggpubr")
+py_run_string("
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as sm
+import pingouin as ping           
+")
+```
+
+
+
+```{r}
+#source("Import.R")
+setwd("/home/lorenzo/Microbesomics_MetS/R-scripts")
+ps_filt = readRDS("../data/metagenomics/ps_filt.rds")
+sampleDt = readRDS("../data/clinics/SmpDtMetSRiskFactors.rds")
+CatVars = c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS", "MetS")
+sampleDt[CatVars] <- lapply(sampleDt[CatVars], as.factor)
+mtbDt = readRDS("../data/metabolomics/mtbDt.rds")
+vst = readRDS("../results/metagenomics/DEseq2/vstNormCounts.rds")
+data_orario <- format(Sys.time(), "%d-%m-%Y")
+#ps_filt = merge_phyloseq(otu_table(vst, taxa_are_rows = TRUE), sample_data(ps_filt), tax_table(ps_filt), phy_tree(ps_filt))
+
+ps_filt2= phyloseq::phyloseq(otu_table(as.data.frame(vst), taxa_are_rows = TRUE),sample_data(sampleDt))#, sample_data(ps_filt), phy_tree(ps_filt), tax_table(ps_filt))
+phy_tree(ps_filt2) = phy_tree(ps_filt)
+tax_table(ps_filt2) = tax_table(ps_filt)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, results="asis")
+```
+
+
+```{r}
+library(phyloseq)
+library(ggplot2)
+library(patchwork)
+library(vegan)
+# sample_data(ps_filt2)$MetS <- as.factor(sample_data(ps_filt2)$MetS)
+
+
+colors <- c("lightblue", "maroon")
+brayRes <- list()
+adolist  <- list()
+
+for (MetTrait in CatVars[1:4]) {
+  tmpSmp <- sampleDt[!is.na(sampleDt[[MetTrait]]), ]
+  tmp_ps_filt <- prune_samples(sample_names(ps_filt2) %in% rownames(tmpSmp), ps_filt2)
+  ord <- ordinate(tmp_ps_filt, method = "PCoA", distance = "bray")
+
+
+  bray <- phyloseq::distance(tmp_ps_filt, method = "bray")
+  sam  <- data.frame(sample_data(tmp_ps_filt))
+  adoRes <- adonis2(bray ~ MetS, data = sam, permutations = 999)
+
+  # ---- NEW: estrai p-value e R2 e prepara etichetta
+  pval <- signif(adoRes$`Pr(>F)`[1], 3)
+  r2   <- round(adoRes$R2[1], 3)
+  lab  <- paste0("\nR² = ", r2, "\np = ", pval)
+
+  adolist[[MetTrait]] <- pval
+
+  p <- plot_ordination(
+    physeq = tmp_ps_filt,
+    ordination = ord,
+    type = "samples"
+  ) +
+    geom_point(aes_string(fill = MetTrait), size = 6, shape = 21, color = "black") +
+    scale_fill_manual(values = colors) +
+    theme_linedraw() +
+    theme(
+      legend.title = element_blank(),
+      legend.position = "bottom",
+      legend.text = element_text(size = 20, face = "bold"),
+      axis.text.y.left = element_text(size = 10),
+      axis.title.y = element_text(size = 20),
+      axis.text.x = element_text(size = 10),
+      axis.title.x = element_text(size = 20),
+      strip.text = element_text(face = "bold", size = 20)
+    ) +
+    guides(fill = guide_legend(override.aes = list(shape = 21))) +
+    # ---- NEW: annota il risultato di adonis2 in alto a destra
+    coord_cartesian(clip = "off") +
+    annotate("text", x = Inf, y = Inf, hjust = 1.05, vjust = 0.7,
+             label = lab, size = 3.5)
+
+  brayRes[[MetTrait]] <- p
+}
+
+# griglia dei plot
+combined_plot <- wrap_plots(brayRes, ncol = 5, guides = "collect")
+
+# (OPZIONALE, una riga) rimuovi le etichette dell’asse X da tutti i pannelli
+combined_plot 
+
+combined_plot
+# ggsave("ordination_panels.png", combined_plot, width = 16, height = 6, dpi = 300)
+library(patchwork)
+
+combined_plot <- wrap_plots(brayRes, ncol = 5, guides = "collect") +
+  plot_annotation(
+    
+    subtitle = "Hyperglycemia · Triglycerides · Hypertension · Low HDL · Overall MetS"
+  )
+
+# opzionale: togli asse X ripetuto
+# combined_plot <- combined_plot & theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+
+combined_plot
+# ggsave("ordination_MetS_traits.png", combined_plot, width = 16, height = 6, dpi = 300)
+
+```
+
+
+non funziona
+```{r}
+library(phyloseq)
+library(ggplot2)
+library(patchwork)
+
+colors <- c("lightblue", "maroon")
+brayRes <- list()
+adolist  <- list()
+
+for (MetTrait in CatVars[1:4]) {
+  tmpSmp <- sampleDt[!is.na(sampleDt[[MetTrait]]), ]
+  tmp_ps_filt <- prune_samples(sample_names(ps_filt2) %in% rownames(tmpSmp), ps_filt2)
+  ord <- ordinate(tmp_ps_filt, method = "PCoA", distance = "bray")
+
+  bray <- phyloseq::distance(tmp_ps_filt, method = "bray")
+  sam  <- data.frame(sample_data(tmp_ps_filt))
+  adoRes <- adonis2(bray ~ MetS, data = sam, permutations = 999)
+
+  # ---- etichetta statistica
+  pval <- signif(adoRes$`Pr(>F)`[1], 3)
+  r2   <- round(adoRes$R2[1], 3)
+  lab  <- paste0("R² = ", r2, "\n", "p = ", pval)
+
+  adolist[[MetTrait]] <- pval
+
+  # ---- singolo plot
+  p <- plot_ordination(
+    physeq = tmp_ps_filt,
+    ordination = ord,
+    type = "samples"
+  ) +
+    geom_point(aes_string(fill = MetTrait), size = 5, shape = 21, color = "black") +
+    scale_fill_manual(values = colors) +
+    theme_linedraw(base_size = 12) +
+    theme(
+      legend.title = element_blank(),
+      legend.position = NULL,
+      legend.text = element_text(size = 14, face = "bold"),
+      axis.text = element_text(size = 8),        # ⬅️ testo assi più piccolo
+      axis.title = element_text(size = 12),      # ⬅️ titolo assi più piccolo
+      strip.text = element_text(size = 14, face = "bold") # titolo del pannello
+    ) +
+    labs(title = MetTrait) +  # ⬅️ titolo sopra ciascun pannello
+    guides(fill = guide_legend(override.aes = list(shape = 21))) +
+    coord_cartesian(clip = "off") +
+    annotate("text", x = Inf, y = Inf, hjust = 1.05, vjust = 1.2,
+             label = lab, size = 3.5)
+
+  brayRes[[MetTrait]] <- p
+}
+
+
+
+combined_plot <- wrap_plots(brayRes, ncol = 4, guides = "collect") &
+  theme(legend.position = "bottom")  # ⬅️ sposta la legenda sotto
+
+combined_plot <- combined_plot +
+  plot_annotation(
+
+    theme = theme(
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 14, hjust = 0.5)
+    )
+  )
+
+
+titles <- c("Hyperglycemia", "Hypertriglyceridemia", "Hypertension", "Low-HDL")
+
+plots <- lapply(seq_along(titles), \(i) {
+  combined_plot[[i]] + ggtitle(titles[i])
+})
+
+combined_plot_relab <- wrap_plots(plots, ncol = 4) &
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+p_c_labeled <- plot_grid(
+  combined_plot_relab,
+  labels = "C",
+  label_size = 16
+)
+
+p_c_labeled
+svg("../results/metagenomics/alphaDiversity/BetaDivF.svg", width = 10, height = 10)
+print(p_c_labeled)
+dev.off()
+
+
+```

@@ -1,0 +1,700 @@
+---
+title: "Microbesomics - MetS Metagenomic Signature"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, results="asis")
+```
+
+```{r}
+#Import librerie R
+library(ggplot2)
+library(DESeq2)
+library(vegan)
+library(ggVennDiagram)
+require(gridExtra)
+library(UpSetR)
+library(ComplexUpset)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(ComplexHeatmap)
+library(circlize)
+library(png)
+library(knitr)
+library(Microsoft365R)
+library(microbiomeMarker)
+library(phyloseq)
+library(xlsx)
+library(reticulate)
+use_condaenv("python_env")
+
+py_run_string("
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as sm
+import pingouin as ping           
+")
+```
+
+```{r}
+#Per Gestire il problema dei NA li sostitutiamo con "unknown"
+mtbDt = readRDS("../data/metabolomics/mtbDt.rds")
+smpDt = readRDS("../data/clinics/SmpDtMetSRiskFactors.rds")
+```
+
+```{r}
+pcoaPlots = paste0("../results/metabolomics/PCoA_MetS")
+
+# PCA
+pca_result <- prcomp(mtbDt, center = TRUE, scale. = TRUE)
+screeplot(pca_result, type = "lines", main = "Scree Plot")
+biplot(pca_result, scale = 0)
+
+# PCA scores in dataframe
+pca_scores <- as.data.frame(pca_result$x)
+dist_matrix <- dist(pca_scores[, c("PC1", "PC2")])
+
+
+
+
+AdonisResults <- list()
+
+# Aggiungi le variabili del gruppo
+variables <- c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS", "MetS")
+for (var in variables) {
+  pca_scores[[var]] <- as.factor(smpDt[[var]])
+}
+
+# Crea i plot
+
+for (var in variables) {
+  tmpPcaScores = pca_scores[!is.na(pca_scores[,var]),]
+  plt = ggplot(tmpPcaScores, aes(x = PC1, y = PC2, color = tmpPcaScores[[var]])) +
+    geom_point(size = 4,  show.legend = FALSE) +
+    theme_minimal() +
+    labs(title = var, x = "PC1", y = "PC2")  + theme(plot.title = element_text(size=22)) 
+  
+
+  png(paste0(pcoaPlots, "/", var, ".png"), res = 200, width = 2000, height = 1200)
+    print(plt)
+    dev.off()
+  
+  
+ 
+    formula <- as.formula(paste("dist_matrix ~", var))
+  # Test Adonis (verifica se la variabilità tra i gruppi di 'var' è significativa)
+ dist_matrix <- dist(tmpPcaScores[, c("PC1", "PC2")])
+    # Esegui pairwise.adonis2 per le altre variabili
+    adonis_res <- pairwiseAdonis::pairwise.adonis2(formula, data = tmpPcaScores)
+  
+  
+  # Salvare il risultato del test Adonis
+  AdonisResults[[var]] <- adonis_res
+}
+grob_list <- list()
+# Carica ogni immagine PNG e convertirla in un grob
+for (var in variables) {
+  png_filename <- paste0(pcoaPlots, "/", var, ".png")
+  img <- readPNG(png_filename)
+  grob_list[[var]] <- rasterGrob(img, interpolate = TRUE)
+}
+
+# Visualizzare le immagini in una griglia
+png(paste0(pcoaPlots,"/", "PCoAMetSVariablesPlot.png"), res=300, width = 2000, height = 1400)
+grid.arrange(grobs = grob_list, ncol = 2)
+dev.off() 
+```
+
+
+
+
+```{r}
+include_graphics(paste0(pcoaPlots,"/", "PCoAMetSVariablesPlot.png"))
+```
+
+```{r}
+covplotpath = ("../results/metabolomics/PCoA_Covariates")
+
+covs = c("Batch", "age", "sex")
+for (var in covs) {
+  if (var != "age"){
+  pca_scores[[var]] <- as.factor(smpDt[[var]])
+  } else{
+      pca_scores[[var]] <- (smpDt[[var]])
+  }
+}
+
+
+
+for (var in covs) {
+  plt = ggplot(pca_scores, aes(x = PC1, y = PC2, color = pca_scores[[var]])) +
+    geom_point(size = 4) +
+    theme_minimal() +
+    labs(title = var, x = "PC1", y = "PC2")  
+  png(paste0(covplotpath, "/", var, ".png"), res = 200, width = 1000, height = 1000)
+    print(plt)
+    dev.off()
+  
+  
+ 
+    formula <- as.formula(paste("dist_matrix ~", var))
+  # Test Adonis (verifica se la variabilità tra i gruppi di 'var' è significativa)
+  if (var == "age") {
+    # Esegui adonis2 su dist_matrix ~ sex (esempio)
+    adonis_res <- vegan::adonis2(formula, data = pca_scores)
+  } else {
+    # Esegui pairwise.adonis2 per le altre variabili
+    adonis_res <- pairwiseAdonis::pairwise.adonis2(formula, data = pca_scores)
+  }
+  
+  # Salvare il risultato del test Adonis
+  AdonisResults[[var]] <- adonis_res
+}
+grob_list <- list()
+# Carica ogni immagine PNG e convertirla in un grob
+for (var in covs) {
+  png_filename <- paste0(covplotpath, "/", var, ".png")
+  img <- readPNG(png_filename)
+  grob_list[[var]] <- rasterGrob(img, interpolate = TRUE)
+}
+
+# Visualizzare le immagini in una griglia
+png(paste0(covplotpath,"/", "covariatePlot.png"), res=300, width = 1000, height = 1000)
+grid.arrange(grobs = grob_list, ncol = 2)
+dev.off() 
+#grid.arrange(CovPlots[[1]], CovPlots[[2]], CovPlots[[3]], ncol = 2)
+
+```
+
+```{r}
+include_graphics(paste0(covplotpath,"/", "covariatePlot.png"))
+```
+
+```{r}
+for (var in variables) {
+  mtbDt[,var] = smpDt[,var]
+}
+```
+
+```{r}
+metdiffpath = "../results/metabolomics/DifferentialAnalysis/TtestMetabolomic.xlsx"
+
+metAll = mtbDt
+
+for (var in variables){
+  
+cmps = c()
+tpval = c()
+nTot = c()
+nNom = c()
+meanNom = c()
+stNom = c()
+nDen = c()
+meanDen = c()
+stDen = c()
+logFc = c()
+nom = "1"
+den = "0"
+meTmp = metAll[metAll[,var] %in% c(nom, den),]
+for (cmp in colnames(metAll)) {
+  if (!cmp %in% variables) {
+    
+ test_result <- NULL
+tryCatch({
+  test_result <- wilcox.test(meTmp[,cmp] ~ meTmp[,var], meTmp)
+}, error = function(e) {
+  cat("Error in processing column", cmp, ": ", e$message, "\n")
+})
+if (!is.null(test_result)) {
+  tpval = append(tpval, test_result$p.value)
+} else {
+  tpval = append(tpval, NA)  # Se c'è un errore, metti NA
+}
+    
+    cmps = append(cmps, cmp)
+    #tpval = append(tpval, test_result$p.value)
+    nTot = append(nTot, nrow(meTmp))
+    nomTmp = meTmp[meTmp[,var] == nom,]
+    nNom = append(nNom, nrow(nomTmp))
+    meanNom = append(meanNom, mean(nomTmp[,cmp]))
+    stNom = append(stNom, sd(nomTmp[,cmp]))
+    
+    
+    denTmp = meTmp[meTmp[,var] == den,]
+    nDen = append(nDen, nrow(denTmp))
+    meanDen = append(meanDen, mean(denTmp[,cmp]))
+    stDen = append(stDen, sd(denTmp[,cmp]))
+    lfc = (mean(nomTmp[,cmp]) - mean(denTmp[,cmp]))
+    logFc = append(logFc, lfc  )
+    
+  }
+
+}
+  fdr = p.adjust((tpval), method = "fdr")
+logFct = log2(abs(logFc))
+logFc = (logFc)
+res = NA
+res = cbind(cmps,nTot, nNom,meanNom, stNom, nDen, meanDen, stDen,logFc, tpval, fdr)
+res = as.data.frame(res)
+colnames(res) = c("cmps", "n",paste0("n_",nom), paste0("mean_",nom), paste0("StDev_",nom), paste0("n_",den), paste0("mean_",den), paste0("StDev",den), "logFc", "p-value", "fdr")
+
+res = res[(res$"p-value") != NaN,]
+res = res[order(res$"p-value"),]
+#xlsx::write.xlsx(res,metdiffpath, sheetName = var,  append = T)
+
+}
+res
+View(res)
+```
+
+
+```{r}
+vst = readRDS("../results/metagenomics/DEseq2/vstNormCounts.rds")
+vst = as.data.frame(vst)
+```
+
+
+
+
+Import VST DEseq2 Normalized data for Cross-omics analysis
+```{python}
+
+vst = r.vst
+#vst.columns = [x[1:] for x in vst.columns]
+mtbDt = r.mtbDt
+mtbDt = mtbDt.iloc[:,:]
+vst = vst.T
+
+insASVs = pd.read_excel('../results/metagenomics/intersections' + '/' +  'IntsASVs.xlsx')
+insASVs.columns = ['asvs']
+vst = vst.loc[:, insASVs.asvs]
+vst = vst.loc[mtbDt.index]
+
+MultiO = pd.merge(mtbDt, vst, left_index = True, right_index = True)
+MultiO = MultiO.apply(pd.to_numeric)
+
+```
+
+Data preparation
+```{r}
+multiO = py$MultiO
+openxlsx::write.xlsx(multiO, paste0("../results/crossOmics/CrosOmicsData.xlsx"), overwrite = T)
+multiO = xlsx::read.xlsx(paste0("../results/crossOmics/CrosOmicsData.xlsx"),  sheetIndex = 1)
+multiO= data.frame(lapply(multiO, as.numeric))
+```
+
+Funzione rcorr con pvalue corretti
+```{r}
+library(Hmisc)
+
+p_adjust_method = "fdr"
+
+rcorr.adjust <- function (x, type = c("pearson", "spearman"), 
+            use = c("complete.obs", "pairwise.complete.obs")) {
+    opt <- options(scipen = 5)
+    on.exit(options(opt))
+    type <- match.arg(type)
+    use <- match.arg(use)
+    x <- if (use == "complete.obs") 
+      as.matrix(na.omit(x))
+    else as.matrix(x)
+    R <- rcorr(x, type = type)
+    P <- P.unadj <- R$P
+    p <- P[lower.tri(P)]
+    adj.p <- p.adjust(p, method = p_adjust_method)
+    P[lower.tri(P)] <- adj.p
+    P[upper.tri(P)] <- 0
+    P <- P + t(P)
+    P <- ifelse(P < 1e-04, 0, P)
+    P <- format(round(P, 4))
+    diag(P) <- ""
+    P[c(grep("0.0000", P), grep("^ 0$", P))] <- "<.0001"
+    P[grep("0.000$", P)] <- "<.001"
+    P.unadj <- ifelse(P.unadj < 1e-04, 0, P.unadj)
+    P.unadj <- format(round(P.unadj, 4))
+    diag(P.unadj) <- ""
+    P.unadj[c(grep("0.0000$", P.unadj), grep("^ 0$", P.unadj))] <- "<.0001"
+    P.unadj[grep("0.000$", P.unadj)] <- "<.001"
+    result <- list(R = R, P = P, P.unadj = P.unadj, type = type)
+    class(result) <- "rcorr.adjust"
+    result
+  }
+
+print.rcorr.adjust <- function(x, ...){
+    cat("\n", if (x$type == "pearson") "Pearson" else "Spearman", "correlations:\n")
+    print(round(x$R$r, 4))
+    cat("\n Number of observations: ")
+    n <- x$R$n
+    if (all(n[1] == n)) cat(n[1], "\n")
+    else{
+        cat("\n")
+        print(n)
+    }
+    cat("\n Pairwise two-sided p-values:\n")
+    print(x$P.unadj, quote=FALSE)
+    cat("\n Adjusted p-values (Holm's method)\n")
+    print(x$P, quote=FALSE)
+}
+
+
+```
+da correggere
+```{r}
+dtt = readRDS("../results/metagenomics/intersections/DatiLogFC_HeatmapMetabolomica.rds")
+dtt = as.data.frame(dtt)
+
+py_run_string("
+import pandas as pd
+
+dtt = r.dtt#pd.read_excel('../results/metagenomics/intersections/DatiLogFC_HeatmapMetabolomica.xlsx', index_col=0)
+dtt['ASVs'] = [x.split('_')[0] for x in dtt.index.astype(str)]
+")
+
+```
+
+```{python}
+dtt = r.dtt#pd.read_excel('../results/metagenomics/intersections/DatiLogFC_HeatmapMetabolomica.xlsx', index_col=0)
+dtt['ASVs'] = [x.split('_')[0] for x in dtt.index.astype(str)]
+```
+
+
+
+Prepariamo la tassonomia della ASV
+```{r}
+results = rcorr.adjust(multiO, type = "spearman", use = "pairwise.complete.obs") 
+logFC_df <- results$R
+logFC_df = logFC_df$r
+logFCdf2 = as.data.frame(logFC_df)
+pvalue_df <-results$P
+
+logFC_df = logFC_df[1:58,59:ncol(logFC_df)]
+pvalue_df = pvalue_df[1:58,59:ncol(pvalue_df)]
+logFCdf2 = as.data.frame(logFC_df)
+pvalsdf2 = as.data.frame(pvalue_df)
+
+```
+Prepariamo la tassonomia della ASV
+```{python}
+
+logFcdf = r.logFCdf2
+pvalsdf = r.pvalsdf2 
+logFcdf = logFcdf.loc[:,insASVs.asvs]
+logFcdf.columns = dtt.columns[:-1]
+
+logFcdf = logFcdf.T
+
+pvalsdf = pvalsdf.loc[:,insASVs.asvs]
+pvalsdf.columns = dtt.columns[:-1]
+pvalsdf = pvalsdf.T
+```
+Cross-omics Heatmap
+```{r}
+logFC_df = py$logFcdf
+pvalue_df = py$pvalsdf
+Heatmp = ("../results/crossOmics/Pearson Cross-Omics Heatmap.png")
+
+# Creare una matrice di annotazione con asterischi se p-value < 0.05
+annotation_matrix <- ifelse(pvalue_df < 0.05, "*", "")
+
+# Funzione per aggiungere asterischi alle celle della heatmap
+heatmap_text <- function(j, i, x, y, width, height, fill) {
+  grid.text(annotation_matrix[i, j], x, y, gp = gpar(fontsize = 20, col = "black"))
+}
+
+# Creare la heatmap con i valori di logFC
+htmp = Heatmap(
+  as.matrix(logFC_df),
+  name = "logFC",
+  col = colorRamp2(c(-2, 0, 2), c("red", "white", "blue")),
+  cell_fun = heatmap_text,  # Aggiunge asterischi sulle celle
+  cluster_rows = TRUE,
+  cluster_columns = T,
+  rect_gp = gpar(col = "black", lwd = 1.5),
+   row_names_gp = gpar(fontsize = 10), column_names_gp = gpar(fontsize = 10))
+
+png(Heatmp, width = 50/2.54, height = 40/2.54, res = 200, units = "in")
+draw(htmp, heatmap_legend_side = "right", padding = unit(c(2, 2, 2, 8), "cm"))
+dev.off()
+```
+```{r}
+# Prerequisiti
+library(igraph)
+library(dplyr)
+library(scales)
+library(tibble)
+
+# Le tue matrici
+R <- as.matrix(logFC_df)   # correlazioni
+P <- as.matrix(pvalue_df)  # p-values
+
+stopifnot(all(dim(R) == dim(P)))  # devono avere stesse dimensioni
+
+# Parametri
+alpha <- 0.05
+use_p_adjust <- FALSE
+metodo <- "BH"
+
+# (Opzionale) correzione multipla
+useP <- P
+if (use_p_adjust) {
+  p_all <- as.vector(P)
+  p_all_adj <- p.adjust(p_all, method = metodo)
+  useP <- matrix(p_all_adj, nrow = nrow(P), ncol = ncol(P),
+                 dimnames = dimnames(P))
+}
+
+# Forza NA sulla diagonale solo se quadrata (per evitare auto-archi)
+if (nrow(R) == ncol(R)) {
+  diag(R) <- 1
+  diag(useP) <- NA_real_
+}
+
+is_square <- nrow(R) == ncol(R) &&
+             !is.null(rownames(R)) && !is.null(colnames(R)) &&
+             all(rownames(R) %in% colnames(R)) && all(colnames(R) %in% rownames(R))
+
+if (is_square) {
+  # Caso matrice quadrata: prendo solo il triangolo superiore (niente duplicati)
+  mask <- upper.tri(R)
+  edges <- tibble(
+    i = rownames(R)[row(R)[mask]],
+    j = colnames(R)[col(R)[mask]],
+    r = R[mask],
+    p = useP[mask]
+  ) %>%
+    filter(!is.na(p), p < alpha)
+} else {
+  # Caso rettangolare (bipartito): tengo tutte le coppie riga-colonna
+  edges <- tibble(
+    i = rep(rownames(R), times = ncol(R)),
+    j = rep(colnames(R), each = nrow(R)),
+    r = as.vector(R),
+    p = as.vector(useP)
+  ) %>%
+    filter(!is.na(p), p < alpha)
+}
+
+message(sprintf("Archi mantenuti (p < %.2f): %d", alpha, nrow(edges)))
+
+# Crea il grafo
+g <- graph_from_data_frame(
+  d = edges %>%
+    transmute(from = i, to = j,
+              weight = abs(r),
+              sign   = ifelse(r >= 0, "pos", "neg"),
+              r = r, p = p),
+  directed = FALSE
+)
+
+# Se bipartito, puoi (opzionale) marcare i due tipi di nodo
+if (!is_square) {
+  V(g)$type <- V(g)$name %in% rownames(R)  # TRUE = gruppo righe, FALSE = gruppo colonne
+}
+
+# Stile archi: blu (+) / rosso (−), spessore ∝ |r|
+E(g)$color <- ifelse(E(g)$sign == "pos", "#2b8cbe", "#de2d26")
+E(g)$width <- rescale(E(g)$weight, to = c(1, 6))
+
+# Nodi (facoltativo): dimensione ∝ strength
+V(g)$size <- 10 + 2 * log1p(strength(g, weights = E(g)$weight))
+V(g)$label.cex <- 0.9
+
+## --- classi, forme, bordo e (opzionale) riempimento ---
+row_set <- rownames(R); col_set <- colnames(R)
+
+V(g)$tipo  <- ifelse(V(g)$name %in% row_set, "Metabolita",
+                     ifelse(V(g)$name %in% col_set, "Taxon", "Altro"))
+
+V(g)$shape <- ifelse(V(g)$tipo == "Metabolita", "circle",
+                     ifelse(V(g)$tipo == "Taxon", "square", "circle"))
+
+## <<< CAMBIO 1: bordo nero spesso >>>
+V(g)$frame.color <- "black"
+V(g)$frame.width <- 2.2
+## === COLORI DEFINITI ===
+col_taxa <- "#DAA520"   # blu
+col_metaboliti<- "#66C2A5"   # giallo-oro
+#66C2A5
+V(g)$color <- ifelse(V(g)$tipo == "Metabolita", col_metaboliti, col_taxa)
+
+
+# Layout
+set.seed(123)
+## --- make it breathe: layout, alpha, curve, label offset ---
+
+# 1) Layout FR più stabile e pesato (archi forti tengono insieme i cluster)
+set.seed(123)
+lay <- layout_with_fr(g, weights = E(g)$weight, niter = 4000, grid = "nogrid")
+lay <- lay * 1.6
+#l <- layout.fruchterman.reingold(g, niter=5000, area=vcount(g)^4*10)
+# 2) Archi semi-trasparenti e leggermente curvi
+E(g)$col_base <- ifelse(E(g)$sign == "pos", "#2b8cbe", "#de2d26")
+E(g)$color    <- adjustcolor(E(g)$col_base, alpha.f = 0.6)  # trasparenza
+E(g)$width    <- scales::rescale(E(g)$weight, to = c(0.5, 4))
+edge_curve    <- 0.15
+
+# 3) Nodi un filo più piccoli (e meno differenze)
+V(g)$size <- 6 + 1.5 * log1p(strength(g, weights = E(g)$weight))
+
+# 4) Etichette spinte verso l’esterno del centro del grafico
+cx <- mean(lay[,1]); cy <- mean(lay[,2])
+theta <- atan2(lay[,2] - cy, lay[,1] - cx)
+V(g)$label.cex <- 1.6   # prova 1.3–2.2 a seconda del gusto
+V(g)$label.degree <- theta
+V(g)$label.dist   <- 0.6
+
+# 5) Plot
+
+svg("../results/crossOmics/CorrNetworkF2.svg", width = 30, height = 20)
+
+par(cex = 1.4)   # <-- Fix testuale
+
+V(g)$label.cex <- 1.4  # <-- Fix etichette nodo
+
+plot(g, layout = lay,
+     vertex.shape       = V(g)$shape,
+     vertex.color       = V(g)$color,
+     vertex.frame.color = V(g)$frame.color,
+     vertex.frame.width = V(g)$frame.width %||% 1.2,
+     vertex.label.color = "black",
+     edge.curved        = edge_curve,
+     main = sprintf("Correlation Network (p < %.2f)", alpha))
+
+dev.off()
+
+
+
+# legende archi (come prima)
+legend("topleft",
+       legend = c("r > 0", "r < 0"),
+       lwd = 3, col = c("#2b8cbe", "#de2d26"), bty = "n")
+
+# legende nodi (bordo = col, riempimento = pt.bg)
+legend("left",
+       legend = c("Metaboliti", "Taxa"),
+       pch = c(21, 22),
+       col = "black",                       # bordo nero
+       pt.bg = c(col_metaboliti, col_taxa), # riempimento
+       pt.cex = 1.5, bty = "n")
+
+
+```
+
+```{r}
+## --- make it breathe: layout, alpha, curve, label offset ---
+
+# 1) Layout FR più stabile e pesato (archi forti tengono insieme i cluster)
+set.seed(123)
+lay <- layout_with_fr(g, weights = E(g)$weight, niter = 4000, grid = "nogrid")
+
+# 2) Archi semi-trasparenti e leggermente curvi
+E(g)$col_base <- ifelse(E(g)$sign == "pos", "#2b8cbe", "#de2d26")
+E(g)$color    <- adjustcolor(E(g)$col_base, alpha.f = 0.6)  # trasparenza
+E(g)$width    <- scales::rescale(E(g)$weight, to = c(0.5, 4))
+edge_curve    <- 0.15
+
+# 3) Nodi un filo più piccoli (e meno differenze)
+V(g)$size <- 6 + 1.5 * log1p(strength(g, weights = E(g)$weight))
+
+# 4) Etichette spinte verso l’esterno del centro del grafico
+cx <- mean(lay[,1]); cy <- mean(lay[,2])
+theta <- atan2(lay[,2] - cy, lay[,1] - cx)
+V(g)$label.cex    <- 0.75
+V(g)$label.degree <- theta
+V(g)$label.dist   <- 0.6
+
+# 5) Plot
+plot(g, layout = lay,
+     vertex.shape       = V(g)$shape,
+     vertex.color       = V(g)$color,        # se l’avevi impostato (fill)
+     vertex.frame.color = V(g)$frame.color,
+     vertex.frame.width = V(g)$frame.width %||% 1.2,
+     vertex.label.color = "black",
+     edge.curved        = edge_curve,
+     main = sprintf("Correlation Network (p < %.2f)", alpha))
+
+```
+
+
+
+
+
+
+
+
+
+Prepariamo la tassonomia della ASV,
+```{r}
+results = rcorr.adjust(multiO, type = "spearman", use = "pairwise.complete.obs") 
+logFC_df <- results$R
+logFC_df = logFC_df$r
+logFCdf2 = as.data.frame(logFC_df)
+pvalue_df <-results$P
+
+logFC_df = logFC_df[1:58,59:ncol(logFC_df)]
+pvalue_df = pvalue_df[1:58,59:ncol(pvalue_df)]
+logFCdf2 = as.data.frame(logFC_df)
+pvalsdf2 = as.data.frame(pvalue_df)
+
+```
+Prepariamo la tassonomia della ASV
+```{python}
+logFcdf = r.logFCdf2
+pvalsdf = r.pvalsdf2 
+logFcdf = logFcdf.loc[:,dtt.ASVs]
+#logFcdf.columns = dtt.index
+
+logFcdf = logFcdf.T
+
+pvalsdf = pvalsdf.loc[:,dtt.ASVs]
+#pvalsdf.columns = dtt.index
+pvalsdf = pvalsdf.T
+```
+Cross-omics Heatmap
+```{r}
+logFC_df = py$logFcdf
+pvalue_df = py$pvalsdf
+
+
+
+Heatmp = paste0("../results/crossOmics/Spearman Cross-Omics Heatmap.png")
+
+# Creare una matrice di annotazione con asterischi se p-value < 0.05
+annotation_matrix <- ifelse(pvalsdf2 < 0.05, "*", "")
+
+# Funzione per aggiungere asterischi alle celle della heatmap
+heatmap_text <- function(j, i, x, y, width, height, fill) {
+  grid.text(annotation_matrix[i, j], x, y, gp = gpar(fontsize = 20, col = "black"))
+}
+
+# Creare la heatmap con i valori di logFC
+htmp = Heatmap(
+  as.matrix(logFCdf2),
+  name = "logFC",
+  col = colorRamp2(c(-2, 0, 2), c("red", "white", "blue")),
+  cell_fun = heatmap_text,  # Aggiunge asterischi sulle celle
+  cluster_rows = TRUE,
+  cluster_columns = T,
+  rect_gp = gpar(col = "black", lwd = 1),
+   row_names_gp = gpar(fontsize = 12), column_names_gp = gpar(fontsize = 10))
+
+
+
+png(Heatmp, width = 50/2.54, height = 40/2.54, res = 200, units = "in")
+draw(htmp, heatmap_legend_side = "right", padding = unit(c(2, 2, 2, 8), "cm"))
+dev.off()
+
+```
+
+```{r}
+include_graphics(Heatmp)
+```
+
+```{r}
+write.xlsx(PathHandler, paste0(percorso_cartella, "/", "PathHandler.xlsx"), sheetName = "Metabolomic", append = TRUE)
+```
+
+
+
