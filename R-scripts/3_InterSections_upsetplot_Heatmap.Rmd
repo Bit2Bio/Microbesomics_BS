@@ -260,8 +260,12 @@ for x in (tmp.columns):
     intName.append(x.replace('.', '-'))          
 
 
+```
+
+```{r}
 openxlsx::write.xlsx(data.frame(py$intsAsv), paste0("../results/metagenomics/intersections", "/", "IntsASVs.xlsx"), overwrite = T)
 ```
+
 
 ```{python}
 

@@ -66,7 +66,6 @@ saveRDS(sampleDt, file = "../data/metabolomics/smpDt5vs6_Pz_adjusted.rds")
 knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, results="asis")
 ```
 
-
 <br> **Codice DEseq2 (Associazioni variabili MetS - Metagenomica)**<br> <button class="btn btn-primary" data-toggle="collapse" data-target="#cella4">Expand/Collapse</button>
 
 ::: {#cella4 .collapse}
@@ -713,5 +712,50 @@ ggsave(
 
 
 ```
+
+Analsi peso soggetti dopo chirurgia bariatrica
+```{r}
+# ===== SETUP =====
+# (non serve caricare dplyr due volte)
+library(dplyr)
+
+# ===== 1) COPIA DEL DATASET =====
+sampleDt_copy <- sampleDt
+
+# ===== 2) NOMI COLONNE UNIVOCI (risolve duplicati tipo "Fatty Liver Index ") =====
+colnames(sampleDt_copy) <- make.unique(colnames(sampleDt_copy))
+
+# ===== 3) CREA UNA VERSIONE NUMERICA DEL PESO (robusta a virgole, "kg", spazi, ecc.) =====
+sampleDt_copy <- sampleDt_copy %>%
+  dplyr::mutate(
+    weight_num = as.character(weight) |> trimws(),
+    weight_num = gsub(",", ".", weight_num),
+    weight_num = gsub("[^0-9.\\-]", "", weight_num),
+    weight_num = suppressWarnings(as.numeric(weight_num))
+  )
+
+# ===== 4) MEDIA PESO PER GROUP IGA 5 E 6 =====
+res_weight <- sampleDt_copy %>%
+  dplyr::filter(`GROUP IGA` %in% c(5, 6)) %>%
+  dplyr::group_by(`GROUP IGA`) %>%
+  dplyr::summarise(
+    mean_weight = mean(weight_num, na.rm = TRUE),
+    n = dplyr::n(),
+    n_valid = sum(!is.na(weight_num)),
+    .groups = "drop"
+  )
+
+print(res_weight)
+
+# ===== 5) (OPZIONALE) SE mean_weight ESCE ANCORA NA, STAMPA I VALORI "PROBLEMATICI" =====
+bad_vals <- sampleDt_copy %>%
+  dplyr::filter(`GROUP IGA` %in% c(5, 6), is.na(weight_num)) %>%
+  dplyr::distinct(weight) %>%
+  dplyr::slice_head(n = 50)
+
+print(bad_vals)
+
+```
+
 
 

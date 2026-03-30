@@ -39,6 +39,7 @@ import pingouin as ping
 ```
 
 ```{r}
+setwd("/home/lorenzo/Microbesomics_MetS/R-scripts/")
 #Per Gestire il problema dei NA li sostitutiamo con "unknown"
 mtbDt = readRDS("../data/metabolomics/mtbDt.rds")
 smpDt = readRDS("../data/clinics/SmpDtMetSRiskFactors.rds")
@@ -386,6 +387,7 @@ logFcdf.columns = dtt.columns[:-1]
 logFcdf = logFcdf.T
 
 pvalsdf = pvalsdf.loc[:,insASVs.asvs]
+pvalsdf
 pvalsdf.columns = dtt.columns[:-1]
 pvalsdf = pvalsdf.T
 ```
@@ -562,7 +564,7 @@ plot(g, layout = lay,
      edge.curved        = edge_curve,
      main = sprintf("Correlation Network (p < %.2f)", alpha))
 
-dev.off()
+#dev.off()
 
 
 

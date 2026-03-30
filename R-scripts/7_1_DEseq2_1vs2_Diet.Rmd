@@ -172,4 +172,50 @@ f = sigtab[row.names(sigtab) %in% intsASVs,]
 ```
 
 
+Analsi peso soggetti dopo dieta
+```{r}
+# Analisi peso soggetti dopo dieta
+
+# ===== SETUP =====
+library(dplyr)
+
+# ===== 1) COPIA DEL DATASET =====
+sampleDt_copy <- sampleDt
+
+# ===== 2) NOMI COLONNE UNIVOCI (risolve duplicati tipo "Fatty Liver Index ") =====
+colnames(sampleDt_copy) <- make.unique(colnames(sampleDt_copy))
+
+# ===== 3) CREA UNA VERSIONE NUMERICA DEL PESO (da "Weight pre") =====
+sampleDt_copy <- sampleDt_copy %>%
+  dplyr::mutate(
+    weight_num = as.character(`Weight pre`) |> trimws(),
+    weight_num = gsub(",", ".", weight_num),
+    weight_num = gsub("[^0-9.\\-]", "", weight_num),
+    weight_num = suppressWarnings(as.numeric(weight_num))
+  )
+
+# ===== 4) MEDIA PESO PER GROUP IGA 1 E 2 =====
+res_weight <- sampleDt_copy %>%
+  dplyr::filter(`GROUP IGA` %in% c(1, 2)) %>%
+  dplyr::group_by(`GROUP IGA`) %>%
+  dplyr::summarise(
+    mean_weight = mean(weight_num, na.rm = TRUE),
+    n = dplyr::n(),
+    n_valid = sum(!is.na(weight_num)),
+    .groups = "drop"
+  )
+
+print(res_weight)
+
+# ===== 5) (OPZIONALE) SE mean_weight ESCE ANCORA NA, STAMPA I VALORI "PROBLEMATICI" =====
+bad_vals <- sampleDt_copy %>%
+  dplyr::filter(`GROUP IGA` %in% c(1, 2), is.na(weight_num)) %>%
+  dplyr::distinct(`Weight pre`) %>%
+  dplyr::slice_head(n = 50)
+
+print(bad_vals)
+
+```
+
+
 
