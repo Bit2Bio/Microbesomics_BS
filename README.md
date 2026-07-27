@@ -67,81 +67,45 @@ All scripts use absolute paths anchored to the project root (`/home/lorenzo/Micr
 
 ```
 Microbesomics/
-├── R-scripts/          # Analysis scripts (run in numerical order)
+├── scripts/                          # Active analysis scripts (run in order)
 ├── data/
-│   ├── clinics/        # Clinical metadata (.rds, .xlsx)
-│   ├── metagenomics/   # Phyloseq objects (.rds) and QIIME2 inputs
-│   ├── metabolomics/   # Metabolomic data (.rds)
-│   └── ValidazioneFloromidia/  # External cohort data
-└── results/            # Output figures and tables (organized by analysis)
+│   ├── raw/                          # Raw input files (not tracked by git)
+│   │   ├── Microobesomics_clinical data_dec2022.xlsx
+│   │   └── qza/                      # QIIME2 artifacts
+│   └── processed/                    # Clean output datasets
+│       └── bariatric_clinical.csv
+├── results/                          # Figures and tables (not tracked by git)
+└── _old/                             # Archived scripts from previous analysis
+    └── R-scripts/
 ```
 
-## Pipeline
+> Raw data and results are excluded from version control (patient data). Processed outputs in `data/processed/` are included as they contain only derived/aggregated variables.
 
-Scripts must be run in the order below. Steps 0.x generate `.rds` objects used by all downstream scripts.
+## Scripts
 
-### 0. Data Import *(run once to generate .rds objects)*
+### `scripts/01_preprocess_bariatric.R`
 
-| Script | Output |
-|---|---|
-| `0_Import.R` | `ps_filt.rds`, `sampleDt.rds`, `mtbDt.rds` |
-| `0_ImportPrePostDiet.R` | `ps_filt1vs2.rds`, `sampleDt1vs2.rds`, `mtbDt1vs2.rds` |
-| `0_ImportPrePostBariatricSurgery.R` | `ps_filt5vs6.rds`, `sampleDt5vs6.rds`, `mtbDt5vs6.rds` |
+**Purpose**: Extracts the 40 pre/post bariatric surgery patient pairs from the raw clinical Excel file, computes MetS criteria per NCEP ATP III, and writes a clean CSV.
 
-### 1. Clinical Analysis
+**Input**: `data/raw/Microobesomics_clinical data_dec2022.xlsx` — sheet `clinical data merged`
 
-| Script | Description |
-|---|---|
-| `1_MetS_RiskFactors.Rmd` | Define MetS and component variables from clinical criteria |
-| `2_0_AnalisiDescrittivaClinica.Rmd` | Descriptive statistics of clinical variables |
+**Output**: `data/processed/bariatric_clinical.csv` — 80 rows (40 PRE + 40 POST), 35 columns
 
-### 2. Metagenomic Analysis (Main Cohort)
+**How to run**:
+```r
+# From the project root
+Rscript scripts/01_preprocess_bariatric.R
+```
 
-| Script | Description |
-|---|---|
-| `2_1_Barplots.Rmd` | Taxonomic composition (Phylum → Family level) |
-| `2_2_DEseq2.Rmd` | Differential abundance by MetS component (DESeq2) |
-| `3_InterSections_upsetplot_Heatmap.Rmd` | Shared ASVs across MetS components (UpSet plot) |
-| `5_BetaDiversity.Rmd` | Community structure — Bray-Curtis PCoA + ADONIS2 |
-| `6_AlphaDiversity.Rmd` | Within-sample diversity (Observed, Fisher, ACE) |
+**Key decisions documented in script comments**:
+- Pre/post pairing verified explicitly by patient ID extracted from the `"N FU"` pattern, not by row order
+- Drug columns excluded from HDL and triglycerides criteria (predominantly statins targeting LDL)
+- `dyslipidaemia == 1` excluded from lipid criteria (generic diagnosis, confirmed to reflect mainly high LDL in this cohort)
+- MetS classification uses three-way logic: certain YES / certain NO / NA — avoids propagating NA when outcome is already determined by observed criteria
 
-### 3. Metabolomics & Cross-Omics
+**Results**:
 
-| Script | Description |
-|---|---|
-| `4_0_Metabolomics_CrossOmics.Rmd` | Metabolomic PCA, ADONIS2 by MetS component |
-| `4_1_Metabolomics_CrossOmics1_vs_2.Rmd` | Metabolomic changes — diet intervention |
-| `4_2_Metabolomics_CrossOmics5_vs_6.Rmd` | Metabolomic changes — bariatric surgery |
-
-### 4. Intervention Analyses
-
-| Script | Description |
-|---|---|
-| `7_1_DEseq2_1vs2_Diet.Rmd` | Microbiome changes — diet intervention (paired DESeq2) |
-| `7_2_DEseq2_5vs6_Bariatric_Surgery.Rmd` | Microbiome changes — bariatric surgery (paired DESeq2) |
-| `7_3_prevotella_9.Rmd` | Targeted analysis of *Prevotella copri* (Prevotella_9) |
-
-### 5. Functional Prediction
-
-| Script | Description |
-|---|---|
-| `8_Picrust.Rmd` | PICRUSt2 pathway inference — main cohort |
-| `8_Picrust_BS.Rmd` | PICRUSt2 pathway inference — bariatric surgery |
-
-### 6. External Validation
-
-| Script | Description |
-|---|---|
-| `ValidazioneFloromidia.Rmd` | Replication in Floromidia cohort |
-| `ValidazioneFloromidia_Updated.Rmd` | Updated validation analysis |
-| `ValidazioneFloromidiaCrossOmics.Rmd` | Cross-omics validation (metagenomics + metabolomics + transcriptomics) |
-
-## Key Outputs
-
-| Analysis | Output file |
-|---|---|
-| Differential abundance (MetS) | `results/metagenomics/DEseq2/AnalisiComparativaMetagenomica.xlsx` |
-| Intersection biomarkers | `results/metagenomics/intersections/IntersezioniUpsetPlotMicrobesomics.xlsx` |
-| Functional pathways | `results/Picrust2_MetS_vs_BS.xlsx` |
-| Clinical description | `results/clinics/Descrittiva Clinica.xlsx` |
-| MetS classification | `results/MetS_RiskFactors/MetS_RisksFactors.xlsx` |
+| Timepoint | MetS− | MetS+ |
+|-----------|-------|-------|
+| PRE | 8 (20%) | 32 (80%) |
+| POST | 34 (85%) | 6 (15%) |
