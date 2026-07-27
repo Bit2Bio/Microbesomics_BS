@@ -31,7 +31,15 @@ The dataset merges two cohorts with different data entry formats for drug column
 - **Bariatric cohort** (`XX-NNN` codes): drug columns are `NA` (absent) or drug name string
 
 **Why drug columns are NOT used for HDL and triglycerides criteria:**  
-Inspection of all lipid-lowering drug names in the dataset shows they are predominantly statins and ezetimibe, which target LDL and are not relevant for the HDL or triglycerides MetS criteria. Three patients across the cohort are on TG-specific therapy (fenofibrate or omega-3 ethyl esters) at specific timepoints; these are captured via the `TG_pharmacotherapy` flag and counted as positive for the TG criterion regardless of their measured lab value (see script 02).
+Inspection of all lipid-lowering drug names in the dataset shows they are predominantly statins and ezetimibe, which target LDL and are not relevant for the HDL or triglycerides MetS criteria. Three samples are on TG-specific therapy at specific timepoints and are flagged with `TG_pharmacotherapy = 1`; all others are 0.
+
+| sample_id | pz | group | drug |
+|-----------|-----|-------|------|
+| S85 | C19 | 3 (PRE) | Fenofibrate |
+| S200 | CO-71 | 5 (PRE) | Fulcosupra (fenofibrate) |
+| S215 | DA-157 | 6 (POST) | Eskimo (omega-3 ethyl esters) |
+
+These samples count as positive for the hypertriglyceridemia criterion regardless of their measured TG value, as the drug may artificially suppress TG below the 150 mg/dL threshold.
 
 **Why `dyslipidaemia == 1` is NOT used for HDL and triglycerides criteria:**  
 Manual inspection confirmed that `dyslipidaemia == 1` in this cohort largely reflects high LDL. Several patients with `dyslipidaemia == 1` had normal HDL and triglycerides. Using this flag would add up to 2 false MetS points per patient.
