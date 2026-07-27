@@ -196,7 +196,7 @@ Rscript scripts/03_filter_5vs6.R
 
 ---
 
-### `scripts/05_deseq2_5vs6.R`
+### `scripts/04_deseq2_5vs6.R`
 
 **Purpose**: Differential abundance analysis (DESeq2), POST (group 6) vs PRE (group 5) bariatric surgery. Paired design with patient as blocking factor.
 
@@ -208,7 +208,7 @@ Rscript scripts/03_filter_5vs6.R
 
 **How to run**:
 ```r
-Rscript scripts/05_deseq2_5vs6.R
+Rscript scripts/04_deseq2_5vs6.R
 ```
 
 **Design**: `~ pz + groupIGA` — pz (patient ID) blocks between-patient variance; contrast is groupIGA 6 vs 5 (positive log2FC = enriched POST-surgery).
@@ -217,7 +217,7 @@ Rscript scripts/05_deseq2_5vs6.R
 
 ---
 
-### `scripts/04_filter_bariatric_paired.R`
+### `scripts/05_filter_bariatric_paired.R`
 
 **Purpose**: Filters the bariatric clinical dataset to retain only patients with metagenomics data at **both** timepoints (PRE and POST). Of the 40 pairs, 7 are missing at least one QZA sample; this script removes them to produce a clean paired set for downstream omics analyses.
 
@@ -229,7 +229,7 @@ Rscript scripts/05_deseq2_5vs6.R
 
 **How to run**:
 ```r
-Rscript scripts/04_filter_bariatric_paired.R
+Rscript scripts/05_filter_bariatric_paired.R
 ```
 
 **Results (33 complete pairs, IGA file)**:
