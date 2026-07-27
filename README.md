@@ -89,10 +89,10 @@ Microbesomics/
 **Input**: `data/raw/qza/` — `asv_table.qza`, `taxonomy.qza`, `fasttree_tree_rooted.qza`, `rep_seq.qza`
 
 **Output**:
-- `data/processed/ps_raw.rds` — phyloseq object (247 samples, 14741 ASVs, 7 taxonomic ranks)
-- `data/processed/otu_table.csv` — ASV count matrix
+- `data/processed/ps_raw.rds` — unfiltered phyloseq object (247 samples, 14741 ASVs)
+- `data/processed/ps_filt.rds` — globally filtered phyloseq (482 ASVs — used only as reference; group-specific filtering is done in downstream scripts)
+- `data/processed/otu_table.csv` — filtered ASV count matrix
 - `data/processed/taxonomy.csv` — per-ASV taxonomic assignments
-- `data/processed/ps_raw.xlsx` — same tables as separate sheets
 
 **How to run**:
 ```r
@@ -189,3 +189,33 @@ Rscript scripts/04_filter_bariatric_paired.R
 | POST | 27 | 6 |
 
 Of the 28 PRE MetS+ patients: **22 achieve remission** (MetS− at POST), **6 do not**. The key comparison for understanding remission drivers is **22 remitters vs 6 non-remitters at baseline**. 5 patients were MetS− at PRE and remained MetS− at POST; none worsened.
+
+---
+
+### `R/filter_phyloseq.R`
+
+Reusable filtering function sourced by all group-specific scripts. Applies MicrobiomeAnalyst-equivalent filters to a phyloseq object already subsetted to the samples of interest:
+
+1. **Low count filter**: ASV must have ≥ `min_count` reads (default 4) in ≥ `min_prev_frac` of samples (default 10%)
+2. **Low variance filter**: removes bottom `var_pct`% by IQR on raw counts; set `var_pct = 0` (default) to skip — recommended for DESeq2 workflows where independent filtering is applied internally
+
+Filtering within each group subset (rather than globally) avoids excluding ASVs that are relevant for a specific comparison but rare in the rest of the cohort.
+
+---
+
+### `scripts/03_filter_5vs6.R`
+
+**Purpose**: Subsets the raw phyloseq to bariatric surgery samples (groups 5 and 6), attaches clinical metadata, and applies feature filtering via `R/filter_phyloseq.R`.
+
+**Input**:
+- `data/processed/ps_raw.rds`
+- `data/processed/clinical_all.csv`
+
+**Output**: `data/processed/ps_filt_5vs6.rds` — 73 samples, 996 ASVs
+
+**How to run**:
+```r
+Rscript scripts/03_filter_5vs6.R
+```
+
+**Filter applied**: ≥4 reads in ≥10% of 73 samples (= 8 samples); variance filter disabled.

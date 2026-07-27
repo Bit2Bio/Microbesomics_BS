@@ -1,8 +1,8 @@
 # =============================================================================
-# 02_import_qiime2.R
+# 01_import_qiime2.R
 #
-# Imports QIIME2 artifacts (QZA files) and builds a bare phyloseq object
-# (OTU table + taxonomy + phylogenetic tree + reference sequences).
+# Imports QIIME2 artifacts (QZA files), builds a bare phyloseq object, and
+# applies MicrobiomeAnalyst-equivalent feature filtering.
 # Sample metadata is NOT attached here — that is done in downstream scripts.
 #
 # Input:  data/raw/qza/
@@ -12,16 +12,20 @@
 #           rep_seq.qza              — representative sequences
 #
 # Output: data/processed/
-#           ps_raw.rds        — phyloseq object, 247 samples, no metadata
-#           otu_table.csv     — ASV count matrix (ASVs × samples)
-#           taxonomy.csv      — per-ASV taxonomic assignments
-#           ps_raw.xlsx       — same tables as separate sheets
+#           ps_raw.rds        — unfiltered phyloseq object, 247 samples
+#           ps_filt.rds       — filtered phyloseq object
+#           otu_table.csv     — filtered ASV count matrix (ASVs × samples)
+#           taxonomy.csv      — per-ASV taxonomic assignments (filtered)
 #
 # Note on sample naming:
 #   QZA sample IDs have the form "ID2988-N-N-boxK". N is the CODE IGA integer
-#   used in all clinical metadata files, and the IDs come out of the BIOM file
-#   already sorted 1..247, so a direct 1:247 rename is safe and keeps
-#   downstream joins simple.
+#   used in all clinical metadata files. Renamed to S1..S247.
+#
+# Filtering (replicates MicrobiomeAnalyst defaults):
+#   1. Low count filter  : ASV must have >= 4 reads in >= 20% of samples
+#                          (>= 50 out of 247 samples)
+#   2. Low variance filter: ASVs in the bottom 10% by IQR are removed
+#                           (applied to log2-transformed counts)
 # =============================================================================
 
 BASE_DIR <- "/home/lorenzo/Microbesomics"
@@ -53,26 +57,54 @@ if (any(new_names == sample_names(ps)))
   stop("Regex did not match all sample IDs — check QZA naming format")
 sample_names(ps) <- new_names
 
-cat("Phyloseq object created:\n")
+cat("Phyloseq object created (unfiltered):\n")
 print(ps)
 
-# --- Save RDS ----------------------------------------------------------------
+# --- Save raw RDS ------------------------------------------------------------
 
 saveRDS(ps, file = file.path(proc_dir, "ps_raw.rds"))
 message("Written: ", file.path(proc_dir, "ps_raw.rds"))
 
-# --- Extract flat tables -----------------------------------------------------
+# --- Feature filtering -------------------------------------------------------
 
-# OTU table: rows = ASVs, columns = samples (samples as columns is standard)
-otu_df <- as.data.frame(otu_table(ps))
-# Add ASV ID as an explicit column for readability in spreadsheet tools
+n_samples <- nsamples(ps)
+
+# 1. Low count filter: >= 4 reads in >= 20% of samples
+min_count     <- 4
+min_prev_frac <- 0.20
+min_samples   <- ceiling(n_samples * min_prev_frac)
+
+prevalence <- apply(otu_table(ps), 1, function(x) sum(x >= min_count))
+ps_filt <- prune_taxa(prevalence >= min_samples, ps)
+
+cat("\nAfter low count filter (>= ", min_count, " reads in >= ",
+    min_prev_frac * 100, "% of samples = ", min_samples, " samples):\n", sep = "")
+cat("ASVs retained:", ntaxa(ps_filt), "of", ntaxa(ps), "\n")
+
+# 2. Low variance filter: remove bottom 10% by IQR on raw filtered counts.
+# MicrobiomeAnalystR applies this filter before any normalisation/transformation,
+# so raw counts are used here to replicate that behaviour faithfully.
+var_pct <- 0.10
+iqr_vals <- apply(as.matrix(otu_table(ps_filt)), 1, IQR)
+iqr_threshold <- quantile(iqr_vals, var_pct)
+ps_filt <- prune_taxa(iqr_vals > iqr_threshold, ps_filt)
+
+cat("After low variance filter (bottom ", var_pct * 100, "% by IQR removed):\n", sep = "")
+cat("ASVs retained:", ntaxa(ps_filt), "\n")
+
+cat("\nFiltered phyloseq object:\n")
+print(ps_filt)
+
+saveRDS(ps_filt, file = file.path(proc_dir, "ps_filt.rds"))
+message("Written: ", file.path(proc_dir, "ps_filt.rds"))
+
+# --- Export filtered tables --------------------------------------------------
+
+otu_df <- as.data.frame(otu_table(ps_filt))
 otu_df <- cbind(ASV_ID = rownames(otu_df), otu_df)
 
-# Taxonomy table
-tax_df <- as.data.frame(tax_table(ps))
+tax_df <- as.data.frame(tax_table(ps_filt))
 tax_df <- cbind(ASV_ID = rownames(tax_df), tax_df)
-
-# --- Write CSVs --------------------------------------------------------------
 
 write.csv(otu_df, file = file.path(proc_dir, "otu_table.csv"),
           row.names = FALSE, na = "")
@@ -81,9 +113,3 @@ message("Written: ", file.path(proc_dir, "otu_table.csv"))
 write.csv(tax_df, file = file.path(proc_dir, "taxonomy.csv"),
           row.names = FALSE, na = "")
 message("Written: ", file.path(proc_dir, "taxonomy.csv"))
-
-# --- Write XLSX (one sheet per table) ----------------------------------------
-
-write.xlsx(list(otu_table = otu_df, taxonomy = tax_df),
-           file = file.path(proc_dir, "ps_raw.xlsx"), overwrite = TRUE)
-message("Written: ", file.path(proc_dir, "ps_raw.xlsx"))

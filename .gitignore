@@ -16,6 +16,10 @@
 !scripts/
 !scripts/**
 
+# Utility functions
+!R/
+!R/**
+
 # Processed data (anonymised outputs)
 !data/
 !data/processed/
