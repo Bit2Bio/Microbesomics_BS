@@ -166,32 +166,6 @@ Rscript scripts/03_preprocess_bariatric.R
 
 ---
 
-### `scripts/03_filter_bariatric_paired.R`
-
-**Purpose**: Filters the bariatric clinical dataset to retain only patients with metagenomics data at **both** timepoints (PRE and POST). Of the 40 pairs, 7 are missing at least one QZA sample; this script removes them to produce a clean paired set for downstream omics analyses.
-
-**Input**:
-- `data/processed/bariatric_clinical.csv` — 80 rows (40 PRE + 40 POST, all clinical pairs)
-- `data/processed/clinical_all.csv` — script 02 output (QZA-linked samples)
-
-**Output**: `data/processed/bariatric_clinical_paired.csv` — 64 rows (33 complete pairs)
-
-**How to run**:
-```r
-Rscript scripts/03_filter_bariatric_paired.R
-```
-
-**Results (33 complete pairs, IGA file)**:
-
-| Timepoint | MetS− | MetS+ |
-|-----------|-------|-------|
-| PRE | 5 | 28 |
-| POST | 27 | 6 |
-
-Of the 28 PRE MetS+ patients: **22 achieve remission** (MetS− at POST), **6 do not**. The key comparison for understanding remission drivers is **22 remitters vs 6 non-remitters at baseline**. 5 patients were MetS− at PRE and remained MetS− at POST; none worsened.
-
----
-
 ### `R/filter_phyloseq.R`
 
 Reusable filtering function sourced by all group-specific scripts. Applies MicrobiomeAnalyst-equivalent filters to a phyloseq object already subsetted to the samples of interest:
@@ -203,7 +177,7 @@ Filtering within each group subset (rather than globally) avoids excluding ASVs 
 
 ---
 
-### `scripts/04_filter_5vs6.R`
+### `scripts/03_filter_5vs6.R`
 
 **Purpose**: Subsets the raw phyloseq to bariatric surgery samples (groups 5 and 6), attaches clinical metadata, and applies feature filtering via `R/filter_phyloseq.R`.
 
@@ -215,7 +189,33 @@ Filtering within each group subset (rather than globally) avoids excluding ASVs 
 
 **How to run**:
 ```r
-Rscript scripts/04_filter_5vs6.R
+Rscript scripts/03_filter_5vs6.R
 ```
 
 **Filter applied**: ≥4 reads in ≥10% of 73 samples (= 8 samples); variance filter disabled.
+
+---
+
+### `scripts/04_filter_bariatric_paired.R`
+
+**Purpose**: Filters the bariatric clinical dataset to retain only patients with metagenomics data at **both** timepoints (PRE and POST). Of the 40 pairs, 7 are missing at least one QZA sample; this script removes them to produce a clean paired set for downstream omics analyses.
+
+**Input**:
+- `data/processed/bariatric_clinical.csv` — 80 rows (40 PRE + 40 POST, all clinical pairs)
+- `data/processed/clinical_all.csv` — script 02 output (QZA-linked samples)
+
+**Output**: `data/processed/bariatric_clinical_paired.csv` — 64 rows (33 complete pairs)
+
+**How to run**:
+```r
+Rscript scripts/04_filter_bariatric_paired.R
+```
+
+**Results (33 complete pairs, IGA file)**:
+
+| Timepoint | MetS− | MetS+ |
+|-----------|-------|-------|
+| PRE | 5 | 28 |
+| POST | 27 | 6 |
+
+Of the 28 PRE MetS+ patients: **22 achieve remission** (MetS− at POST), **6 do not**. The key comparison for understanding remission drivers is **22 remitters vs 6 non-remitters at baseline**. 5 patients were MetS− at PRE and remained MetS− at POST; none worsened.
