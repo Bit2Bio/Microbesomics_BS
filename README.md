@@ -217,7 +217,7 @@ Rscript scripts/04_deseq2_5vs6.R
 
 ---
 
-### `scripts/05_filter_bariatric_paired.R`
+### `scripts/filter_bariatric_paired.R`
 
 **Purpose**: Filters the bariatric clinical dataset to retain only patients with metagenomics data at **both** timepoints (PRE and POST). Of the 40 pairs, 7 are missing at least one QZA sample; this script removes them to produce a clean paired set for downstream omics analyses.
 
@@ -229,7 +229,7 @@ Rscript scripts/04_deseq2_5vs6.R
 
 **How to run**:
 ```r
-Rscript scripts/05_filter_bariatric_paired.R
+Rscript scripts/filter_bariatric_paired.R
 ```
 
 **Results (33 complete pairs, IGA file)**:
