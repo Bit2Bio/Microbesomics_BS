@@ -240,3 +240,45 @@ Rscript scripts/filter_bariatric_paired.R
 | POST | 27 | 6 |
 
 Of the 28 PRE MetS+ patients: **22 achieve remission** (MetS− at POST), **6 do not**. The key comparison for understanding remission drivers is **22 remitters vs 6 non-remitters at baseline**. 5 patients were MetS− at PRE and remained MetS− at POST; none worsened.
+
+---
+
+### `scripts/05_deseq2_remission.R`
+
+**Purpose**: Differential abundance analysis (DESeq2), MetS remitters vs non-remitters at baseline (PRE, group 5).
+
+**Input**: `data/processed/ps_filt_5vs6.rds` — 66 samples, 707 ASVs (subset to 28 PRE MetS+ samples at runtime)
+
+**Output**:
+- `results/deseq2/deseq2_remission_results.xlsx`
+- `results/deseq2/volcano_remission.png`
+
+**How to run**:
+```r
+Rscript scripts/05_deseq2_remission.R
+```
+
+**Design**: `~ remission` — remitter (MetS+ PRE → MetS− POST) vs non_remitter (MetS+ PRE → MetS+ POST); positive log2FC = enriched in remitters.
+
+**Results**: 150 / 707 ASVs significant at FDR < 0.05 (41 enriched in remitters, 109 in non-remitters).
+
+---
+
+### `scripts/06_deseq2_mets_baseline.R`
+
+**Purpose**: Differential abundance analysis (DESeq2), MetS+ vs MetS− at baseline (PRE, group 5) among the 33 complete pairs.
+
+**Input**: `data/processed/ps_filt_5vs6.rds` — 66 samples, 707 ASVs (subset to 33 PRE samples at runtime)
+
+**Output**:
+- `results/deseq2/deseq2_mets_baseline_results.xlsx`
+- `results/deseq2/volcano_mets_baseline.png`
+
+**How to run**:
+```r
+Rscript scripts/06_deseq2_mets_baseline.R
+```
+
+**Design**: `~ MetS_group` — MetS_pos vs MetS_neg (reference); positive log2FC = enriched in MetS+.
+
+**Results**: 122 / 707 ASVs significant at FDR < 0.05 (59 enriched in MetS+, 63 enriched in MetS−).
