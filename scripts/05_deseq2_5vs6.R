@@ -39,9 +39,13 @@ cat("Loaded:", nsamples(ps), "samples,", ntaxa(ps), "ASVs\n")
 
 # --- Prepare sample variables ------------------------------------------------
 
-# groupIGA and pz must be factors for DESeq2 model matrix
-sample_data(ps)$groupIGA <- factor(sample_data(ps)[["group iga"]])
-sample_data(ps)$pz       <- factor(sample_data(ps)[["pz"]])
+# groupIGA and pz must be factors for DESeq2 model matrix.
+# phyloseq sample_data doesn't support $<- directly; modify via data.frame.
+# phyloseq coerces column names: spaces → dots ("group iga" → "group.iga")
+sd <- data.frame(sample_data(ps), check.names = FALSE)
+sd$groupIGA <- factor(sd[["group.iga"]])
+sd$pz       <- factor(sd[["pz"]])
+sample_data(ps) <- sample_data(sd)
 
 # Sanity check: every patient should appear exactly twice (PRE + POST)
 pz_counts <- table(sample_data(ps)$pz)
