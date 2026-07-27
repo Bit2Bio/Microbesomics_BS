@@ -1,0 +1,434 @@
+---
+title: "Microbesomics - MetS Metagenomic Signature"
+output: html_document
+---
+
+```{r}
+#source("Import.R")
+setwd("/home/lorenzo/Microbesomics_MetS/R-scripts")
+ps_filt = readRDS("../data/metagenomics/ps_filt.rds")
+sampleDt = readRDS("../data/clinics/SmpDtMetSRiskFactors.rds")
+mtbDt = readRDS("../data/metabolomics/mtbDt.rds")
+variables <- c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS")
+desRes = readRDS("../results/metagenomics/DEseq2/Deseq2Results.rds")
+data_orario <- format(Sys.time(), "%d-%m-%Y")
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, results="asis")
+```
+
+```{r}
+#Import librerie R
+library(ggplot2)
+library(DESeq2)
+library(vegan)
+library(ggVennDiagram)
+require(gridExtra)
+library(openxlsx)
+library(UpSetR)
+library(ComplexUpset)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(ComplexHeatmap)
+library(circlize)
+library(Microsoft365R)
+library(microbiomeMarker)
+library(phyloseq)
+library(xlsx)
+library(reticulate)
+use_condaenv("python_env")
+library(knitr)
+library(writexl)
+
+py_run_string("
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as sm
+import pingouin as ping           
+")
+```
+
+
+```{r}
+
+#Diagramma di Venn (ASV Significative)
+CatVars = c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS")
+
+Res = list()
+for (var in CatVars) {
+  tmp = xlsx::read.xlsx("../results/metagenomics/DEseq2/AnalisiComparativaMetagenomica.xlsx", sheetName = var, row.names=1)
+  tmp = tmp[tmp$padj <= 0.054,]
+  row.names(tmp)
+  Res[[var]] = row.names(tmp)
+}
+
+#Sex = Res[["sex"]]
+HyperglicemiaMetS = Res[["HyperglicemiaMetS"]]
+TrygliceridesMetS = Res[["TrygliceridesMetS"]]
+HypertensionMets = Res[["HypertensionMets"]]
+HDL_MetS = Res[["HDL_MetS"]]
+```
+
+```{r}
+# Carica la libreria ggVennDiagram
+# Crea una lista con i tuoi insiemi
+venn_data <- list(
+  "HyperglicemiaMetS" = HyperglicemiaMetS,
+  "TrygliceridesMetS" = TrygliceridesMetS,
+  "HypertensionMets" = HypertensionMets,
+  "HDL_MetS" = HDL_MetS
+)
+```
+
+```{r include=FALSE}
+venn_data <- list(
+  "Hyperglicemia" = HyperglicemiaMetS,
+  "Hypertriglyceridemia" = TrygliceridesMetS,
+  "Hypertension" = HypertensionMets,
+  "Low-HDL" = HDL_MetS
+)
+
+
+# Convertire la lista in un dataframe binario
+binary_matrix <- fromList(venn_data)
+binary_df <- as.data.frame(binary_matrix)
+
+set_colors <- c(
+  "Hyperglicemia" = "#E63946",  # Rosso brillante
+  "Hypertriglyceridemia" = "#457B9D",         # Blu profondo
+  "Hypertension" = "#F4A261", # Arancione caldo
+  "Low-HDL" = "#2A9D8F"     # Verde acqu
+)
+
+fancy_upset <- ComplexUpset::upset(
+    binary_df,
+    colnames(binary_df),
+    name=' ',
+    width_ratio=0.3,  # Aumentato per ingrandire le barre laterali
+    matrix=(
+        intersection_matrix(geom=geom_point(shape='circle filled', size=4))  # Punti più grandi
+        + scale_color_manual(
+            values=set_colors,  # Usa la variabile set_colors per associare i colori
+            guide=guide_legend(override.aes=list(shape='circle'))
+        )
+    ),
+    queries=list(
+        upset_query(set='Hyperglicemia', fill=set_colors['Hyperglicemia']),
+        upset_query(set='Hypertriglyceridemia', fill=set_colors['Hypertriglyceridemia']),
+        upset_query(set='Hypertension', fill=set_colors['Hypertension']),
+        upset_query(set='Low-HDL', fill=set_colors['Low-HDL'])
+        )
+) + 
+  theme_minimal() +  
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_blank(),  # ❌ Rimuove i numeri in basso delle intersezioni
+    axis.title.y = element_blank(),  # ❌ Rimuove la scritta "group"
+    legend.position = "bottom",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    panel.grid.major = element_line(color = "gray80", linetype = "dashed")
+  )
+# Stampare il plot
+svg("../results/metagenomics/intersections/upsetplot.svg", width = 8, height = 6)
+print(fancy_upset)
+dev.off()
+
+
+ggsave(
+  "upsetplot.png",
+  plot = fancy_upset,
+  width = 28,   # cm
+  height = 14,    # cm (adatta in base ai tuoi pannelli)
+  units = "cm",
+  dpi = 600
+)
+```
+
+<br> **Upset Plot (Using DEseq2 Results)**
+
+```{r}
+include_graphics("../results/metagenomics/intersections/upsetplot.svg")
+```
+
+```{r}
+df2 <- data.frame(gene=unique(unlist(venn_data)))
+df1 <- lapply(venn_data,function(x){
+  data.frame(gene = x)
+}) %>% 
+  bind_rows(.id = "path")
+```
+
+```{r}
+df_int <- lapply(df2$gene,function(x){
+  # pull the name of the intersections
+  intersection <- df1 %>% 
+    dplyr::filter(gene==x) %>% 
+    arrange(path) %>% 
+    pull("path") %>% 
+    paste0(collapse = "|")
+  
+  # build the dataframe
+  data.frame(gene = x,int = intersection)
+}) %>% 
+  bind_rows()
+
+df_intsort = df_int %>% 
+  group_by(int) %>% 
+  dplyr::summarise(n=n()) %>% 
+  arrange(desc(n))
+
+nms = c()
+colss  =list()
+for (inter in (df_intsort$int)){
+  
+  colss[[inter]] = df_int[df_int$int == inter,]$gene
+}
+```
+
+```{r}
+nms = c()
+colss = list()
+
+for (inter in df_intsort$int) {
+  nms = append(nms, inter)
+  colss[[inter]] = df_int[df_int$int == inter,]$gene
+}
+
+df_final  = plyr::ldply(colss, rbind)
+names = (df_final[,1])
+dff = df_final[,2:ncol(df_final)]
+```
+
+```{r}
+py_run_string("
+dffinal = r.dff
+dff  = dffinal.T
+dff.columns = r.names
+dff.to_excel('../results/metagenomics/intersections/' + 'IntersezioniUpsetPlotMicrobesomics.xlsx')
+")
+```
+
+```{r}
+txTaable = data.frame(tax_table(ps_filt))
+```
+
+```{r}
+py_run_string("
+taxTable = r.txTaable
+dt = pd.read_excel( '../results/metagenomics/intersections/' + 'IntersezioniUpsetPlotMicrobesomics.xlsx', index_col = 0 )
+
+for x in dt.columns:
+  tmpAll= dt.loc[:,x]
+  tmp = tmpAll.loc[~tmpAll.isna()]
+  txx = []
+  for x2 in tmp:
+   
+    nm = taxTable.loc[x2]
+    txx.append('/'.join([x for x in nm])) 
+  num = len(dt.index) - len(txx)
+  
+  for x3 in range((num)):
+    txx.append(np.NAN)
+  dt.loc[:,x] = txx
+")
+```
+
+```{r}
+dt = py$dt
+xlsx::write.xlsx(dt, "../results/metagenomics/intersections/IntersezioniUpsetPlotMicrobesomics.xlsx", sheetName = "Taxonomy", append = T)
+```
+
+```{r}
+ints= xlsx::read.xlsx("../results/metagenomics/intersections/IntersezioniUpsetPlotMicrobesomics.xlsx", sheetIndex = 1, row.names=1)
+```
+
+```{python}
+variables = ['Low.HDL', 'Hypertension', 'Hyperglicemia', 'Hypertriglyceridemia']
+ints =r.ints
+intName= []
+intsAsv= []
+tmp = ints.loc[:,~ints.columns.isin(variables)]
+for x in (tmp.columns):
+  tmp1 = tmp[x]
+  tmp1= (tmp1.loc[~pd.isnull(tmp1)])
+  for y in tmp1:
+    intsAsv.append(y)
+    intName.append(x.replace('.', '-'))          
+
+
+```
+
+```{r}
+openxlsx::write.xlsx(data.frame(py$intsAsv), paste0("../results/metagenomics/intersections", "/", "IntsASVs.xlsx"), overwrite = T)
+```
+
+
+```{python}
+import pandas as pd
+desRes = r.desRes
+
+sigtab_df = pd.read_csv("~/Microbesomics_MetS/results/sigtab_DESeq2.csv",  index_col=0)# perché avevi salvato gli ASV come rownames)
+desRes["BS"] = sigtab_df
+dfResfc = pd.DataFrame(np.nan, index=intsAsv, columns=desRes.keys())
+dfRespvals = pd.DataFrame(np.nan, index=intsAsv, columns=r.variables)
+
+adjIndex =desRes['MetS'].loc[intsAsv,:]
+adjIndex.index=     adjIndex . index + '_' +adjIndex.Family + '/'         + adjIndex.Genus 
+adjIndex= adjIndex.index
+for ky in desRes.keys():
+  for asv in intsAsv:
+    tmp = desRes[ky]
+    dfResfc.loc[asv, ky] = tmp.loc[asv, 'log2FoldChange']
+    dfRespvals.loc[asv, ky] = tmp.loc[asv, 'padj']
+    
+
+dfResfc.index = adjIndex
+dfRespvals.index = adjIndex  
+
+dfResfc = dfResfc.sort_values(by='MetS')
+dfRespvals = dfRespvals.loc[dfResfc.index]
+
+
+Family = [ x.split("_")[1].split("/")[0] for x in dfResfc.index]
+
+asvName = [ x.split("_")[0] for x in dfResfc.index]
+Genus = [ x.split("/")[1] for x in dfResfc.index]
+nwName = []
+for asv,name in zip(asvName, Genus):
+  nwName.append( asv + "_" + name)
+  
+
+
+[x.split("_")[1].split("/")[1] for x in dfResfc.index]
+```
+
+
+
+```{r}
+library(ComplexHeatmap)
+library(circlize)
+library(RColorBrewer)
+library(grid)
+
+
+logFC_df <- t(py$dfResfc)
+row.names(logFC_df) = c("Hyperglicemia", "Hypertriglyceridemia", "Hypertension", "Low-HDL", "MetS", "BS")
+pvalue_df <-t(py$dfRespvals)
+row.names(pvalue_df) = c("Hyperglicemia", "Hypertriglyceridemia", "Hypertension", "Low-HDL", "MetS", "BS")
+family = py$Family
+nwName = py$nwName
+
+colnames(logFC_df) = nwName
+colnames(pvalue_df) = nwName
+# Creare una matrice di annotazione con asterischi se p-value < 0.05
+annotation_matrix <- ifelse(pvalue_df < 0.054, "*", "")
+
+# Funzione per aggiungere asterischi alle celle della heatmap
+heatmap_text <- function(j, i, x, y, width, height, fill) {
+  grid.text(annotation_matrix[i, j], x, y, gp = gpar(fontsize = 12, col = "black"))
+}
+
+## --- Prepara il vettore delle famiglie allineato alle colonne ---
+# Se 'family' ha i nomi uguali a 'nwName', riordino; altrimenti lo prendo così com'è
+if (!is.null(names(family))) {
+  families <- as.character(family[nwName])
+} else {
+  families <- as.character(family)
+}
+
+# Gestione eventuali NA (facoltativo ma utile)
+families[is.na(families) | families == ""] <- "NA"
+
+# Mappa colori per Family
+u <- unique(families)
+base_pal <- brewer.pal(max(3, min(9, length(u))), "Set1")
+pal <- colorRampPalette(base_pal)(length(u))
+family_cols_map <- setNames(pal, u)
+
+# Colore dei nomi colonna
+name_colors <- family_cols_map[families]
+
+## --- Annotazione in alto con legenda orizzontale (la barra rimane sopra) ---
+top_anno <- HeatmapAnnotation(
+  ` ` = factor(families, levels = u),    # ⬅️ nome vuoto
+  col = list(` ` = family_cols_map),
+  annotation_legend_param = list(
+    title = NULL,
+    direction = "horizontal",
+    nrow = 3,
+    labels_gp = gpar(fontsize = 12)
+  )
+)
+
+## --- Heatmap con nomi colonna colorati ---
+htmp <- Heatmap(
+  as.matrix(logFC_df),
+  name = "logFC",
+  col = colorRamp2(c(-2, 0, 2), c("red", "white", "blue")),
+  cell_fun = heatmap_text,
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  rect_gp = gpar(col = "black", lwd = 1.5),
+  row_names_gp = gpar(fontsize = 14),
+  column_names_rot = 60,
+  column_names_gp = gpar(fontsize = 10, col = name_colors),
+  row_names_side = "left",
+  top_annotation = top_anno,
+  heatmap_legend_param = list(
+    title = "logFC",
+    direction = "horizontal",
+    labels_gp = gpar(fontsize = 9),
+    title_gp  = gpar(fontsize = 10, fontface = "bold")
+  )
+)
+
+## --- Disegno con legende in basso, fuse e centrate ---
+grid.newpage()
+draw(
+  htmp,
+  heatmap_legend_side = "bottom",
+  annotation_legend_side = "bottom",
+  merge_legends = TRUE
+)
+
+
+png("../results/metagenomics/intersections/Heatmap ASV UpsetPlot.png", units = "cm",width = 30, height = 12, res =600 )
+grid.newpage()
+draw(
+  htmp,
+  heatmap_legend_side = "bottom",
+  annotation_legend_side = "bottom",
+  merge_legends = TRUE
+)
+dev.off()
+```
+
+Export Picrust
+```{r}
+PicrexpPath = paste0( "../results/metagenomics/ExportPicrust2/")
+#dir.create(PicrexpPath)
+
+picrdt = otu_table(ps_filt)
+picrdt = as.data.frame(picrdt)
+picrdt = picrdt[rownames(picrdt) %in% py$intsAsv,]
+picr_ps = phyloseq(otu_table(as.matrix(picrdt), taxa_are_rows = T), tax_table(ps_filt), sample_data(ps_filt),  refseq(ps_filt))
+tax = tax_table(picr_ps)
+tax<-as.data.frame(tax)
+tax_cols <- colnames(tax)
+tax$taxonomy<-do.call(paste, c(tax[tax_cols], sep=";"))
+for(co in tax_cols) tax[co]<-NULL
+write.table(tax, paste0(PicrexpPath,"tax.txt"), quote=FALSE, col.names=FALSE, sep="\t")
+ 
+ write.table(otu_table(picr_ps), paste0(PicrexpPath,"otu_tab.txt"), sep = "\t")
+ 
+
+picr_ps %>%
+ refseq() %>%
+ Biostrings::writeXStringSet(paste0(PicrexpPath,"asv.fna"), append=FALSE,
+ compress=FALSE, compression_level=NA, format="fasta")
+```
+

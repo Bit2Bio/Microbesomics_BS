@@ -1,0 +1,442 @@
+---
+title: "Microbesomics - MetS Metagenomic Signature"
+output: html_document
+---
+
+```{r}
+#source("Import.R")
+ps_filt = readRDS("../data/metagenomics/ps_filt.rds")
+sampleDt = readRDS("../data/clinics/SmpDtMetSRiskFactors.rds")
+mtbDt = readRDS("../data/metabolomics/mtbDt.rds")
+
+data_orario <- format(Sys.time(), "%d-%m-%Y")
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, results="asis")
+```
+
+```{r}
+#Import librerie R
+library(ggplot2)
+library(DESeq2)
+library(vegan)
+library(ggVennDiagram)
+require(gridExtra)
+library(openxlsx)
+library(UpSetR)
+library(ComplexUpset)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(ComplexHeatmap)
+library(circlize)
+library(Microsoft365R)
+library(microbiomeMarker)
+library(phyloseq)
+library(xlsx)
+library(reticulate)
+use_condaenv("python_env")
+library(knitr)
+library(writexl)
+
+py_run_string("
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as sm
+import pingouin as ping           
+")
+```
+
+
+<br> **Codice DEseq2 (Associazioni variabili MetS - Metagenomica)**<br> <button class="btn btn-primary" data-toggle="collapse" data-target="#cella4">Expand/Collapse</button>
+
+::: {#cella4 .collapse}
+```{r echo=TRUE}
+#Associazioni delle 7 Variabili in esame con Metagenomica by DEseq2
+ps_filt = merge_phyloseq(ps_filt, sample_data(sampleDt))
+desRes = list()
+plot_listDEseq2 <- list()
+CatVars = c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS", "MetS")
+#ps.filt.DESeq = tax_glom(ps.filt.DESeq, "Genus")
+for (col in CatVars) {
+
+  sampleDt.deseq =  as.data.frame(sample_data(ps_filt))
+  #row.names(sampleDt.deseq) = row.names(sampleDt.cp)
+  sampleDt.deseq = sampleDt.deseq[(sampleDt.deseq[,col]) != "",]
+  if (! col %in% c("age", "HOMA", "QUICKI")) {
+  sampleDt.deseq[[col]] = as.factor(sampleDt.deseq[[col]])
+  }
+  sampleDt.deseq[["sex"]] = as.factor(sampleDt.deseq[["sex"]])
+  sampleDt.deseq[["Batch"]] = as.factor(sampleDt.deseq[["Batch"]])
+  #sampleDt.deseq[["gruppo"]] = as.factor(sampleDt.deseq[["gruppo"]])
+  ps.filt.DESeq = merge_phyloseq(otu_table(ps_filt), tax_table(ps_filt), sample_data(sampleDt.deseq))
+  sample_data(ps.filt.DESeq) = sample_data(sampleDt.deseq)
+  
+  #ps.filt.DESeq = tax_glom(ps.filt.DESeq, taxrank = "Genus", NArm = T)
+  ps.filt.DESeq.cp = ps.filt.DESeq
+  otu_table(ps.filt.DESeq) = otu_table(ps.filt.DESeq) +1
+  #print(ps.filt.DESeq)
+  x = paste("~", "Batch + age +sex +", col)
+  my_formula = formula(x)
+  #print(col)
+  ps_filt.DEseq = phyloseq_to_deseq2(ps.filt.DESeq,  my_formula)
+  ps_filt.DEseq= estimateSizeFactors(ps_filt.DEseq)
+  ps_filt.DEseq= estimateDispersions(ps_filt.DEseq)
+#ps_V_vs_VI_filt.DEseq = varianceStabilizingTransformation(ps_V_vs_VI_filt.DEseq)
+  diagdds = DESeq(ps_filt.DEseq, test="Wald", fitType="parametric" )
+  if (! col %in% c("age")) {
+    nnn = paste0(col,"_","1","_","vs","_","0")
+  res = results(diagdds, cooksCutoff = F, name = nnn,pAdjustMethod = "fdr")  
+  }
+  else {
+  res = results(diagdds, name = col, cooksCutoff = F,pAdjustMethod = "fdr")
+  }
+  
+  sigtab = as(res, "data.frame")
+  sigtab =cbind(as(sigtab, "data.frame"), tax_table(ps.filt.DESeq.cp))
+  sigtab = as.data.frame(sigtab)
+  
+  if (nrow(sigtab[!is.na(sigtab$padj),]) != 486) {
+    sigtab$padj[is.na(sigtab$padj)] <- 1
+  }
+  
+  sigtab = (sigtab[order(sigtab$padj),])
+  sigtab
+  xlsx::write.xlsx(sigtab,"../results/metagenomics/DEseq2/AnalisiComparativaMetagenomica.xlsx", sheetName = col, append = T)
+  desRes[[col]] = sigtab
+  
+  alpha = 0.054
+  sigtab = sigtab[sigtab$padj <= 0.054,]
+("ggplot2")
+theme_set(theme_bw())
+scale_fill_discrete <- function(palname = "Set1", ...) {
+    scale_fill_brewer(palette = palname, ...)
+}
+# Phylum order
+x = tapply(sigtab$log2FoldChange, sigtab$Phylum, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Phylum = factor(as.character(sigtab$Phylum), levels=names(x))
+# Genus order
+x = tapply(sigtab$log2FoldChange, sigtab$Genus, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Genus = factor(as.character(sigtab$Genus), levels=names(x))
+sigtab = sigtab[sigtab$Genus != "NA",]
+p = ggplot(sigtab, aes(x=log2FoldChange, y=Genus, color=Phylum)) + geom_point(size=3) +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5, size = 8.5)) + ggtitle(col)
+plot_listDEseq2[[col]] = p
+  
+  #write.csv(sigtab,file = paste0("~/Downloads/GUT_EB2021-22/results/DESeq_alimentazione/DESeq_alimenti_", col, ".csv"))
+  
+#ggsave(p, device = "png",file = paste0("../results/metagenomics/DEseq2", "/",col, ".png"), width = 12, height = 20, dpi = 300)
+}
+```
+:::
+Export counts Normalizzati per analisi di associazione cross-Omica
+```{r}
+ps.filt.DESeq = merge_phyloseq(otu_table(ps_filt), tax_table(ps_filt), sample_data(ps_filt))
+
+  
+  #ps.filt.DESeq = tax_glom(ps.filt.DESeq, taxrank = "Genus", NArm = T)
+  ps.filt.DESeq.cp = ps.filt.DESeq
+  otu_table(ps.filt.DESeq) = otu_table(ps.filt.DESeq) +1
+  #print(ps.filt.DESeq)
+  x = paste("~", "Batch + age +sex")
+  my_formula = formula(x)
+  #print(col)
+  ps_filt.DEseq = phyloseq_to_deseq2(ps.filt.DESeq,  my_formula)
+  ps_filt.DEseq= estimateSizeFactors(ps_filt.DEseq)
+  NormCounts = counts(estimateSizeFactors(ps_filt.DEseq), normalized=TRUE)
+  openxlsx::write.xlsx(NormCounts, "../results/metagenomics/DEseq2/vstNormCounts.xlsx", overwrite = T)
+  saveRDS(NormCounts, ("../results/metagenomics/DEseq2/vstNormCounts.rds"))
+```
+
+```{r}
+saveRDS(desRes, "../results/metagenomics/DEseq2/Deseq2Results.rds")
+```
+
+```{r}
+## Requisiti
+library(ggplot2)
+library(RColorBrewer)
+
+## Parametri
+alpha <- 0.054
+CatVars <- c("HyperglicemiaMetS", "TrygliceridesMetS", "HypertensionMets", "HDL_MetS", "MetS")
+
+theme_set(theme_bw())
+
+## 1) Ricava la lista globale dei Phylum significativi in TUTTI i confronti
+all_sig_phyla <- unique(unlist(lapply(CatVars, function(col){
+  df <- as.data.frame(desRes[[col]])
+  if(!"padj" %in% names(df)) return(NA_character_)
+  df <- df[!is.na(df$padj) & df$padj <= alpha, , drop = FALSE]
+  as.character(df$Phylum)
+})))
+all_sig_phyla <- setdiff(all_sig_phyla, c(NA, "", "NA"))
+
+## 2) Crea una palette coerente per tutti i Phylum
+##    - se i phyla > 12 usa Set3 estesa con colorRampPalette
+if(length(all_sig_phyla) <= 12){
+  pal <- brewer.pal(max(3, length(all_sig_phyla)), "Set2")
+  pal <- pal[seq_along(all_sig_phyla)]
+} else {
+  pal <- colorRampPalette(brewer.pal(12, "Set3"))(length(all_sig_phyla))
+}
+phyla_colors <- setNames(pal, all_sig_phyla)
+
+## 3) Loop sui confronti e crea i plot con la stessa mappa colori
+plot_listDEseq2 <- list()
+
+for(col in CatVars){
+  sigtab <- as.data.frame(desRes[[col]])
+  if(nrow(sigtab) == 0) next
+  
+  ## Filtra significativi
+  sigtab <- sigtab[!is.na(sigtab$padj) & sigtab$padj <= alpha, , drop = FALSE]
+  if(nrow(sigtab) == 0) next
+  
+  ## Phylum/Genus come character
+  sigtab$Phylum <- as.character(sigtab$Phylum)
+  sigtab$Genus  <- as.character(sigtab$Genus)
+  
+  ## Ordine Phylum per max log2FC
+  x <- tapply(sigtab$log2FoldChange, sigtab$Phylum, function(v) max(v, na.rm = TRUE))
+  x <- sort(x, decreasing = TRUE)
+  sigtab$Phylum <- factor(sigtab$Phylum, levels = names(x))
+  
+  ## Ordine Genus per max log2FC
+  xg <- tapply(sigtab$log2FoldChange, sigtab$Genus, function(v) max(v, na.rm = TRUE))
+  xg <- sort(xg, decreasing = TRUE)
+  sigtab$Genus <- factor(sigtab$Genus, levels = names(xg))
+  
+  ## Rimuovi Genera NA letterali
+  sigtab <- sigtab[!is.na(sigtab$Genus) & sigtab$Genus != "NA", , drop = FALSE]
+  if(nrow(sigtab) == 0) next
+  
+  ## Plot con palette Phylum coerente (drop=FALSE per mostrare solo presenti ma mantenere mappa)
+  p <- ggplot(sigtab, aes(x = log2FoldChange, y = Genus, color = Phylum)) +
+    geom_point(size = 3) +
+    scale_color_manual(values = phyla_colors, drop = FALSE) +
+    theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust = 0.5, size = 8.5)) +
+    ggtitle(col)
+  
+  plot_listDEseq2[[col]] <- p
+  
+  ## Salva
+ 
+}
+
+## Esempio: stampa i tre plot che ti interessano con colori coerenti
+## print(plot_listDEseq2[["HyperglicemiaMetS"]])
+## print(plot_listDEseq2[["HypertensionMets"]])
+
+ print(plot_listDEseq2[["HDL_MetS"]])
+
+```
+
+
+```{r}
+library(ggplot2)
+library(patchwork)
+library(grid)
+
+# 1) Define a global set of Phyla across the selected traits
+sel <- c("HyperglicemiaMetS","TrygliceridesMetS","HypertensionMets","HDL_MetS")
+
+all_phyla <- unique(unlist(lapply(sel, function(col){
+  df <- as.data.frame(desRes[[col]])
+  as.character(df$Phylum)
+})))
+all_phyla <- setdiff(all_phyla, c(NA,"","NA"))
+
+# 2) Build one consistent color palette (named vector) for ALL plots
+if (length(all_phyla) <= 12) {
+  pal <- RColorBrewer::brewer.pal(max(3, length(all_phyla)), "Set2")[seq_along(all_phyla)]
+} else {
+  pal <- grDevices::colorRampPalette(RColorBrewer::brewer.pal(12,"Set3"))(length(all_phyla))
+}
+phyla_colors <- setNames(pal, all_phyla)
+
+# 3) Rebuild plots with the SAME factor levels & SAME scale_color_manual
+plots_uniform <- lapply(sel, function(col){
+  sigtab <- as.data.frame(desRes[[col]])
+  sigtab <- sigtab[!is.na(sigtab$padj) & sigtab$padj <= 0.054, , drop = FALSE]
+  if (nrow(sigtab) == 0) return(NULL)
+
+  sigtab$Genus  <- as.character(sigtab$Genus)
+  sigtab$Phylum <- factor(as.character(sigtab$Phylum), levels = all_phyla)  # <- identical levels
+
+  # Order Genus (optional)
+  ordG <- tapply(sigtab$log2FoldChange, sigtab$Genus, function(v) max(v, na.rm=TRUE))
+  ordG <- sort(ordG, decreasing = TRUE)
+  sigtab$Genus <- factor(sigtab$Genus, levels = names(ordG))
+
+  ggplot(sigtab, aes(x = log2FoldChange, y = Genus, color = Phylum)) +
+    geom_point(size = 3) +
+    scale_color_manual(
+      values = phyla_colors,
+      breaks = names(phyla_colors),  # same order in legend
+      drop = FALSE                   # keep absent phyla in legend
+    ) +
+    theme_bw() +
+    theme(
+      panel.spacing = unit(4,"pt"),
+      plot.margin   = margin(2,6,2,6,"pt"),
+      axis.text.y   = element_text(size = 12),
+      axis.text.x   = element_text(size = 12),
+      legend.position = "none"
+    ) +
+    ggtitle(col)
+})
+
+# Remove NULLs (if a trait had no significant ASVs)
+plots_uniform <- Filter(Negate(is.null), plots_uniform)
+
+stopifnot(length(plots_uniform) >= 1)
+
+# 1) ricrea una versione del PRIMO plot con legenda forzata (scala + guida + posizione)
+legend_plot <- plots_uniform[[1]] +
+  scale_color_manual(values = phyla_colors, limits = all_phyla, drop = FALSE) +
+  guides(color = guide_legend(title = NULL)) +
+  theme(legend.position = "bottom")
+
+# 2) estrai la legenda come grob
+leg <- cowplot::get_legend(legend_plot)
+
+# 3) rimuovi la legenda da tutti i pannelli
+plots_noleg <- lapply(plots_uniform, function(p) p + theme(legend.position = "none"))
+
+# 4) griglia 2×2 dei pannelli
+row_2x2 <- wrap_plots(plots_noleg, ncol = 2)
+
+# 5) composizione finale: pannelli + una sola legenda sotto
+final <- cowplot::plot_grid(row_2x2, leg, ncol = 1, rel_heights = c(1, 0.12))
+
+# 6) mostra e salva
+print(final)
+```
+
+```{r}
+# Seleziona solo MetS
+col <- "MetS"
+
+# Estrai e filtra i dati significativi
+sigtab <- as.data.frame(desRes[[col]])
+sigtab <- sigtab[!is.na(sigtab$padj) & sigtab$padj <= 0.054, , drop = FALSE]
+
+if (nrow(sigtab) > 0) {
+  # Imposta i livelli del Phylum in modo coerente con gli altri plot
+  sigtab$Phylum <- factor(as.character(sigtab$Phylum), levels = all_phyla)
+
+  # Ordina i Genera in base al log2FC
+  ordG <- tapply(sigtab$log2FoldChange, sigtab$Genus, function(v) max(v, na.rm = TRUE))
+  ordG <- sort(ordG, decreasing = TRUE)
+  sigtab$Genus <- factor(as.character(sigtab$Genus), levels = names(ordG))
+
+  # Costruisci il plot
+  p_MetS <- ggplot(sigtab, aes(x = log2FoldChange, y = Genus, color = Phylum)) +
+    geom_point(size = 3) +
+    scale_color_manual(
+      values = phyla_colors,
+      breaks = names(phyla_colors),
+      drop = FALSE
+    ) +
+   # coord_flip() + 
+    theme_bw() +
+    theme(
+      panel.spacing = unit(4, "pt"),
+      plot.margin   = margin(2, 6, 2, 6, "pt"),
+      axis.text.y   = element_text(size = 8),
+      
+       axis.text.x   = element_text(size = 8, angle = 90, hjust = 1),
+      legend.position = "right"
+    ) +
+    ggtitle("MetS")
+
+  print(p_MetS)
+
+} else {
+  message("No significant ASVs for MetS at FDR ≤ 0.054.")
+}
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(RColorBrewer)
+
+make_trait_plots <- function(desRes, 
+                             sel,
+                             tax_level = "Order",   # <- "Family", "Phylum", "Order", "Class", "Genus"
+                             padj_thr = 0.05,
+                             ncol = 2,
+                             show_combined = TRUE) {
+  # 1) livello tassonomico esiste?
+  stopifnot(length(sel) > 0)
+  
+  # 2) tutte le etichette presenti nei trait selezionati
+  all_tax <- unique(unlist(lapply(sel, function(col){
+    df <- as.data.frame(desRes[[col]])
+    as.character(df[[tax_level]])
+  })))
+  all_tax <- setdiff(all_tax, c(NA, "", "NA"))
+  
+  # 3) palette consistente
+  if (length(all_tax) <= 12) {
+    pal <- brewer.pal(max(3, length(all_tax)), "Set2")[seq_along(all_tax)]
+  } else {
+    pal <- grDevices::colorRampPalette(brewer.pal(12, "Set3"))(length(all_tax))
+  }
+  tax_cols <- setNames(pal, all_tax)
+  
+  # 4) un plot per trait
+  plots <- lapply(sel, function(col){
+    df <- as.data.frame(desRes[[col]])
+    if (!all(c("Genus","log2FoldChange","padj") %in% names(df))) return(NULL)
+    df <- df[!is.na(df$padj) & df$padj <= padj_thr, , drop = FALSE]
+    if (nrow(df) == 0) return(NULL)
+    
+    df$Genus <- as.character(df$Genus)
+    # livelli fissi del colore
+    df[[tax_level]] <- factor(as.character(df[[tax_level]]), levels = all_tax)
+    # ordine dei generi (opzionale): per max |log2FC|
+    ordG <- tapply(df$log2FoldChange, df$Genus, function(v) max(abs(v), na.rm=TRUE))
+    df$Genus <- factor(df$Genus, levels = names(sort(ordG, decreasing = TRUE)))
+    
+    ggplot(df, aes(x = log2FoldChange, y = Genus, color = .data[[tax_level]])) +
+      geom_point(size = 3) +
+      scale_color_manual(values = tax_cols, breaks = names(tax_cols), drop = FALSE) +
+      labs(title = col, x = "log2 Fold Change", y = NULL, color = tax_level) +
+      theme_bw() +
+      theme(
+        panel.spacing = unit(4, "pt"),
+        plot.margin   = margin(2, 6, 2, 6, "pt"),
+        axis.text.y   = element_text(size = 10),
+        axis.text.x   = element_text(size = 10)
+      )
+  })
+  
+  # togli i NULL (trait senza significativi)
+  plots <- Filter(Negate(is.null), plots)
+  
+  if (length(plots) == 0) stop("Nessun trait ha taxa con padj <= ", padj_thr)
+  if (!show_combined) return(plots)
+  
+  # 5) combina (es. 2x2) e colleziona la legenda
+  combined <- wrap_plots(plots, ncol = ncol, guides = "collect") &
+    theme(legend.position = "bottom")
+  return(combined)
+}
+
+```
+
+```{r}
+sel <- c("HyperglicemiaMetS","TrygliceridesMetS","HypertensionMets","HDL_MetS")
+p <- make_trait_plots(desRes, sel, tax_level = "Class", padj_thr = 0.054, ncol = 2)
+p
+
+```
+

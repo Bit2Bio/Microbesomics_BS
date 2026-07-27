@@ -83,7 +83,63 @@ Microbesomics/
 
 ## Scripts
 
-### `scripts/01_preprocess_bariatric.R`
+### `scripts/01_import_qiime2.R`
+
+**Purpose**: Imports QIIME2 artifacts (QZA files) and builds a bare phyloseq object with 247 samples and 14741 ASVs. No sample metadata is attached at this stage.
+
+**Input**: `data/raw/qza/` — `asv_table.qza`, `taxonomy.qza`, `fasttree_tree_rooted.qza`, `rep_seq.qza`
+
+**Output**:
+- `data/processed/ps_raw.rds` — phyloseq object (247 samples, 14741 ASVs, 7 taxonomic ranks)
+- `data/processed/otu_table.csv` — ASV count matrix
+- `data/processed/taxonomy.csv` — per-ASV taxonomic assignments
+- `data/processed/ps_raw.xlsx` — same tables as separate sheets
+
+**How to run**:
+```r
+Rscript scripts/01_import_qiime2.R
+```
+
+**Note on sample naming**: QZA internal IDs (`ID2988-N-N-boxK`) are renamed to `S1`..`S247` by extracting N via regex. These correspond to CODE IGA in all clinical metadata files.
+
+---
+
+### `scripts/02_preprocess_clinical.R`
+
+**Purpose**: Reads all four clinical sheets from the IGA Excel file, normalises column names, and stacks them into a single dataset with one row per sample. Columns present in some sheets but not others are filled with NA.
+
+**Input**: `data/raw/Copia di Microobesomics_clinical data IGA 260324.xlsx`
+- Sheet `group1vs2` — dietary intervention, pre/post
+- Sheet `group3vs4` — Mingrone cohort, pre/post
+- Sheet `group5vs6` — bariatric surgery, pre/post
+
+> `clinical data merged - BASAL` is excluded: it contains only the baseline timepoint for the same patients already present in the group sheets, and would introduce duplicates.
+
+**Output**:
+- `data/processed/clinical_all.csv` — 247 rows × 169 columns, one row per QZA sample
+- `data/processed/clinical_all.xlsx` — same, single sheet
+
+**How to run**:
+```r
+Rscript scripts/02_preprocess_clinical.R
+```
+
+**Column name harmonisation**: The four sheets use inconsistent naming for the same variables. All names are lowercased; known synonyms are unified:
+
+| Raw name (some sheets) | Unified name |
+|------------------------|--------------|
+| `DIABETE/IFG` | `diabetes` |
+| `OSAS` | `saos` |
+| `Weight pre` | `weight` |
+| `BMI pre` | `bmi` |
+
+Variables unique to one sheet (e.g. BIA body composition and PREDIMED diet score in `group1vs2`) are kept as-is with NA in all other sheets.
+
+**Sample ID**: `sample_id` column is added as `"S" + CODE IGA`, linking each clinical row to the phyloseq object (`S1`..`S247`).
+
+---
+
+### `scripts/03_preprocess_bariatric.R`
 
 **Purpose**: Extracts the 40 pre/post bariatric surgery patient pairs from the raw clinical Excel file, computes MetS criteria per NCEP ATP III, and writes a clean CSV.
 
@@ -93,8 +149,7 @@ Microbesomics/
 
 **How to run**:
 ```r
-# From the project root
-Rscript scripts/01_preprocess_bariatric.R
+Rscript scripts/03_preprocess_bariatric.R
 ```
 
 **Key decisions documented in script comments**:
@@ -109,3 +164,29 @@ Rscript scripts/01_preprocess_bariatric.R
 |-----------|-------|-------|
 | PRE | 8 (20%) | 32 (80%) |
 | POST | 34 (85%) | 6 (15%) |
+
+---
+
+### `scripts/04_filter_bariatric_paired.R`
+
+**Purpose**: Filters the bariatric clinical dataset to retain only patients with metagenomics data at **both** timepoints (PRE and POST). Of the 40 pairs, 7 are missing at least one QZA sample; this script removes them to produce a clean paired set for downstream omics analyses.
+
+**Input**:
+- `data/processed/bariatric_clinical.csv` — script 03 output (80 rows)
+- `data/processed/clinical_all.csv` — script 02 output (QZA-linked samples)
+
+**Output**: `data/processed/bariatric_clinical_paired.csv` — 64 rows (33 complete pairs)
+
+**How to run**:
+```r
+Rscript scripts/04_filter_bariatric_paired.R
+```
+
+**Results (complete pairs only)**:
+
+| Timepoint | MetS− | MetS+ |
+|-----------|-------|-------|
+| PRE | 6 | 26 |
+| POST | 27 | 5 |
+
+Of the 26 PRE MetS+ patients: 21 achieve remission (MetS− at POST), 5 do not. The key comparison for understanding remission drivers is **21 remitters vs 5 non-remitters at baseline**. 7 patients were MetS− at PRE (33 − 26 = 7).
