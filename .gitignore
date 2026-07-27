@@ -1,12 +1,26 @@
-# Ignora tutto
+# Ignore everything by default
 *
 
-# Ignora file temporanei OVUNQUE
+# Temporary / lock files
 ~lock.*
 .~lock.*
 *#
 
-# Ma NON ignorare queste
+# --- Track these files and directories ---
+
 !.gitignore
-!R-scripts/
-!R-scripts/**
+!README.md
+
+# New scripts
+!scripts/
+!scripts/**
+
+# Processed data (anonymised outputs)
+!data/
+!data/processed/
+!data/processed/*.csv
+
+# Old scripts (archived reference)
+!_old/
+!_old/R-scripts/
+!_old/R-scripts/**
