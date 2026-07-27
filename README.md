@@ -185,14 +185,14 @@ Filtering within each group subset (rather than globally) avoids excluding ASVs 
 - `data/processed/ps_raw.rds`
 - `data/processed/clinical_all.csv`
 
-**Output**: `data/processed/ps_filt_5vs6.rds` — 73 samples, 996 ASVs
+**Output**: `data/processed/ps_filt_5vs6.rds` — 66 samples (33 complete pairs), ASV count updated after rerun
 
 **How to run**:
 ```r
 Rscript scripts/03_filter_5vs6.R
 ```
 
-**Filter applied**: ≥4 reads in ≥10% of 73 samples (= 8 samples); variance filter disabled.
+**Filter applied**: ≥4 reads in ≥10% of 66 samples (= 7 samples); variance filter disabled.
 
 ---
 
