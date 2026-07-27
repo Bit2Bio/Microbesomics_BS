@@ -185,14 +185,14 @@ Filtering within each group subset (rather than globally) avoids excluding ASVs 
 - `data/processed/ps_raw.rds`
 - `data/processed/clinical_all.csv`
 
-**Output**: `data/processed/ps_filt_5vs6.rds` — 66 samples (33 complete pairs), 1039 ASVs
+**Output**: `data/processed/ps_filt_5vs6.rds` — 66 samples (33 complete pairs), 707 ASVs
 
 **How to run**:
 ```r
 Rscript scripts/03_filter_5vs6.R
 ```
 
-**Filter applied**: ≥4 reads in ≥10% of 66 samples (= 7 samples); variance filter disabled.
+**Filters applied**: ≥4 reads in ≥10% of 66 samples (= 7 samples); bottom 10% by IQR removed (variance filter).
 
 ---
 
@@ -213,7 +213,7 @@ Rscript scripts/05_deseq2_5vs6.R
 
 **Design**: `~ pz + groupIGA` — pz (patient ID) blocks between-patient variance; contrast is groupIGA 6 vs 5 (positive log2FC = enriched POST-surgery).
 
-**Results**: 286 / 1039 ASVs significant at FDR < 0.05 (150 enriched POST, 136 enriched PRE).
+**Results**: 255 / 707 ASVs significant at FDR < 0.05 (126 enriched POST, 129 enriched PRE).
 
 ---
 

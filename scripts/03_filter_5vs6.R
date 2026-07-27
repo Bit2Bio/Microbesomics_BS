@@ -13,9 +13,8 @@
 #   data/processed/ps_filt_5vs6.rds — filtered phyloseq, 66 samples (33 pairs)
 #
 # Filtering (via R/filter_phyloseq.R):
-#   Low count filter: >= 4 reads in >= 10% of 66 samples = 7 samples
-#   Variance filter: skipped (var_pct = 0) — DESeq2 applies independent
-#   filtering internally.
+#   Low count filter : >= 4 reads in >= 10% of 66 samples = 7 samples
+#   Variance filter  : remove bottom 10% by IQR (raw counts)
 # =============================================================================
 
 BASE_DIR <- "/home/lorenzo/Microbesomics"
@@ -51,7 +50,8 @@ cat("Samples retained:", nsamples(ps_5vs6), "\n")
 cat("ASVs before filtering:", ntaxa(ps_5vs6), "\n\n")
 
 # Apply feature filtering on the 66-sample subset
-ps_filt_5vs6 <- filter_ps(ps_5vs6, min_count = 4, min_prev_frac = 0.10, var_pct = 0)
+# var_pct = 0.10 removes the bottom 10% of ASVs by IQR (applied on raw counts)
+ps_filt_5vs6 <- filter_ps(ps_5vs6, min_count = 4, min_prev_frac = 0.10, var_pct = 0.10)
 
 cat("\nFiltered phyloseq object:\n")
 print(ps_filt_5vs6)
