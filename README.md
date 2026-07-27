@@ -166,19 +166,19 @@ Rscript scripts/03_preprocess_bariatric.R
 
 ---
 
-### `scripts/04_filter_bariatric_paired.R`
+### `scripts/03_filter_bariatric_paired.R`
 
 **Purpose**: Filters the bariatric clinical dataset to retain only patients with metagenomics data at **both** timepoints (PRE and POST). Of the 40 pairs, 7 are missing at least one QZA sample; this script removes them to produce a clean paired set for downstream omics analyses.
 
 **Input**:
-- `data/processed/bariatric_clinical.csv` — script 03 output (80 rows)
+- `data/processed/bariatric_clinical.csv` — 80 rows (40 PRE + 40 POST, all clinical pairs)
 - `data/processed/clinical_all.csv` — script 02 output (QZA-linked samples)
 
 **Output**: `data/processed/bariatric_clinical_paired.csv` — 64 rows (33 complete pairs)
 
 **How to run**:
 ```r
-Rscript scripts/04_filter_bariatric_paired.R
+Rscript scripts/03_filter_bariatric_paired.R
 ```
 
 **Results (33 complete pairs, IGA file)**:
@@ -203,7 +203,7 @@ Filtering within each group subset (rather than globally) avoids excluding ASVs 
 
 ---
 
-### `scripts/03_filter_5vs6.R`
+### `scripts/04_filter_5vs6.R`
 
 **Purpose**: Subsets the raw phyloseq to bariatric surgery samples (groups 5 and 6), attaches clinical metadata, and applies feature filtering via `R/filter_phyloseq.R`.
 
@@ -215,7 +215,7 @@ Filtering within each group subset (rather than globally) avoids excluding ASVs 
 
 **How to run**:
 ```r
-Rscript scripts/03_filter_5vs6.R
+Rscript scripts/04_filter_5vs6.R
 ```
 
 **Filter applied**: ≥4 reads in ≥10% of 73 samples (= 8 samples); variance filter disabled.
