@@ -6,17 +6,8 @@ Multi-omics analysis of gut microbiome signatures associated with Metabolic Synd
 
 - **Main cohort**: n=177 cross-sectional samples, MetS classification based on NCEP ATP III criteria (≥3 of 5)
 - **Diet intervention**: paired pre/post comparison (Groups 1 vs 2)
-- **Bariatric surgery**: paired pre/post comparison (Groups 5 vs 6), n=40 pairs
+- **Bariatric surgery**: paired pre/post comparison (Groups 5 vs 6), n=33 complete pairs with metagenomics at both timepoints
 - **External validation**: Floromidia cohort (independent replication)
-
-### Bariatric Surgery — MetS Prevalence
-
-| Timepoint | MetS− | MetS+ |
-|-----------|-------|-------|
-| PRE (before surgery) | 8 (20%) | 32 (80%) |
-| POST (after surgery) | 34 (85%) | 6 (15%) |
-
-85% of subjects achieved MetS remission after bariatric surgery. The 6 subjects remaining MetS+ post-surgery represent partial responders; the group is too small (n=6) for independent multi-omics analysis.
 
 ### MetS Criteria (NCEP ATP III — AHA/NHLBI 2005 revision)
 
@@ -40,7 +31,7 @@ The dataset merges two cohorts with different data entry formats for drug column
 - **Bariatric cohort** (`XX-NNN` codes): drug columns are `NA` (absent) or drug name string
 
 **Why drug columns are NOT used for HDL and triglycerides criteria:**  
-Inspection of all lipid-lowering drug names in the dataset shows they are predominantly statins and ezetimibe, which target LDL and are not relevant for the HDL or triglycerides MetS criteria. Only 2 bariatric patients use TG/HDL-specific drugs (1 fenofibrate, 1 omega-3 ethyl esters); both are covered by their measured lab values, which are complete for all 40 pairs.
+Inspection of all lipid-lowering drug names in the dataset shows they are predominantly statins and ezetimibe, which target LDL and are not relevant for the HDL or triglycerides MetS criteria. Three patients across the cohort are on TG-specific therapy (fenofibrate or omega-3 ethyl esters) at specific timepoints; these are captured via the `TG_pharmacotherapy` flag and counted as positive for the TG criterion regardless of their measured lab value (see script 02).
 
 **Why `dyslipidaemia == 1` is NOT used for HDL and triglycerides criteria:**  
 Manual inspection confirmed that `dyslipidaemia == 1` in this cohort largely reflects high LDL. Several patients with `dyslipidaemia == 1` had normal HDL and triglycerides. Using this flag would add up to 2 false MetS points per patient.
@@ -182,11 +173,11 @@ Rscript scripts/03_preprocess_bariatric.R
 Rscript scripts/04_filter_bariatric_paired.R
 ```
 
-**Results (complete pairs only)**:
+**Results (33 complete pairs, IGA file)**:
 
 | Timepoint | MetS− | MetS+ |
 |-----------|-------|-------|
-| PRE | 6 | 26 |
-| POST | 27 | 5 |
+| PRE | 5 | 28 |
+| POST | 27 | 6 |
 
-Of the 26 PRE MetS+ patients: 21 achieve remission (MetS− at POST), 5 do not. The key comparison for understanding remission drivers is **21 remitters vs 5 non-remitters at baseline**. 7 patients were MetS− at PRE (33 − 26 = 7).
+Of the 28 PRE MetS+ patients: **22 achieve remission** (MetS− at POST), **6 do not**. The key comparison for understanding remission drivers is **22 remitters vs 6 non-remitters at baseline**. 5 patients were MetS− at PRE and remained MetS− at POST; none worsened.

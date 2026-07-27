@@ -5,6 +5,7 @@
 ~lock.*
 .~lock.*
 *#
+*.xlsx
 
 # --- Track these files and directories ---
 
