@@ -200,7 +200,7 @@ Rscript scripts/03_filter_5vs6.R
 
 **Purpose**: Differential abundance analysis (DESeq2), POST (group 6) vs PRE (group 5) bariatric surgery. Paired design with patient as blocking factor.
 
-**Input**: `data/processed/ps_filt_5vs6.rds` — 66 samples, 1039 ASVs
+**Input**: `data/processed/ps_filt_5vs6.rds` — 66 samples, 707 ASVs
 
 **Output**:
 - `results/deseq2/deseq2_5vs6_results.xlsx` — full results table with taxonomy
