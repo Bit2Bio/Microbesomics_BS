@@ -84,15 +84,12 @@ Microbesomics/
 
 ### `scripts/01_import_qiime2.R`
 
-**Purpose**: Imports QIIME2 artifacts (QZA files) and builds a bare phyloseq object with 247 samples and 14741 ASVs. No sample metadata is attached at this stage.
+**Purpose**: Imports QIIME2 artifacts (QZA files) and builds a bare phyloseq object with 247 samples and 14741 ASVs. No sample metadata is attached at this stage. Feature filtering is NOT applied here — it is handled group-specifically by `R/filter_phyloseq.R` in each analysis script.
 
 **Input**: `data/raw/qza/` — `asv_table.qza`, `taxonomy.qza`, `fasttree_tree_rooted.qza`, `rep_seq.qza`
 
 **Output**:
 - `data/processed/ps_raw.rds` — unfiltered phyloseq object (247 samples, 14741 ASVs)
-- `data/processed/ps_filt.rds` — globally filtered phyloseq (482 ASVs — used only as reference; group-specific filtering is done in downstream scripts)
-- `data/processed/otu_table.csv` — filtered ASV count matrix
-- `data/processed/taxonomy.csv` — per-ASV taxonomic assignments
 
 **How to run**:
 ```r
