@@ -135,33 +135,6 @@ Variables unique to one sheet (e.g. BIA body composition and PREDIMED diet score
 
 ---
 
-### `scripts/03_preprocess_bariatric.R`
-
-**Purpose**: Extracts the 40 pre/post bariatric surgery patient pairs from the raw clinical Excel file, computes MetS criteria per NCEP ATP III, and writes a clean CSV.
-
-**Input**: `data/raw/Microobesomics_clinical data_dec2022.xlsx` — sheet `clinical data merged`
-
-**Output**: `data/processed/bariatric_clinical.csv` — 80 rows (40 PRE + 40 POST), 35 columns
-
-**How to run**:
-```r
-Rscript scripts/03_preprocess_bariatric.R
-```
-
-**Key decisions documented in script comments**:
-- Pre/post pairing verified explicitly by patient ID extracted from the `"N FU"` pattern, not by row order
-- Drug columns excluded from HDL and triglycerides criteria (predominantly statins targeting LDL)
-- `dyslipidaemia == 1` excluded from lipid criteria (generic diagnosis, confirmed to reflect mainly high LDL in this cohort)
-- MetS classification uses three-way logic: certain YES / certain NO / NA — avoids propagating NA when outcome is already determined by observed criteria
-
-**Results**:
-
-| Timepoint | MetS− | MetS+ |
-|-----------|-------|-------|
-| PRE | 8 (20%) | 32 (80%) |
-| POST | 34 (85%) | 6 (15%) |
-
----
 
 ### `R/filter_phyloseq.R`
 
