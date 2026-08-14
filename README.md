@@ -187,32 +187,6 @@ Rscript scripts/04_deseq2_5vs6.R
 
 ---
 
-### `scripts/filter_bariatric_paired.R`
-
-**Purpose**: Filters the bariatric clinical dataset to retain only patients with metagenomics data at **both** timepoints (PRE and POST). Of the 40 pairs, 7 are missing at least one QZA sample; this script removes them to produce a clean paired set for downstream omics analyses.
-
-**Input**:
-- `data/processed/bariatric_clinical.csv` — 80 rows (40 PRE + 40 POST, all clinical pairs)
-- `data/processed/clinical_all.csv` — script 02 output (QZA-linked samples)
-
-**Output**: `data/processed/bariatric_clinical_paired.csv` — 64 rows (33 complete pairs)
-
-**How to run**:
-```r
-Rscript scripts/filter_bariatric_paired.R
-```
-
-**Results (33 complete pairs, IGA file)**:
-
-| Timepoint | MetS− | MetS+ |
-|-----------|-------|-------|
-| PRE | 5 | 28 |
-| POST | 27 | 6 |
-
-Of the 28 PRE MetS+ patients: **22 achieve remission** (MetS− at POST), **6 do not**. The key comparison for understanding remission drivers is **22 remitters vs 6 non-remitters at baseline**. 5 patients were MetS− at PRE and remained MetS− at POST; none worsened.
-
----
-
 ### `scripts/05_deseq2_remission.R`
 
 **Purpose**: Differential abundance analysis (DESeq2), MetS remitters vs non-remitters at baseline (PRE, group 5).
