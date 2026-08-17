@@ -60,7 +60,6 @@ sd_pre$MetS_group <- factor(
   ifelse(sd_pre$MetS == 1, "MetS_pos", "MetS_neg"),
   levels = c("MetS_neg", "MetS_pos")
 )
-
 sample_data(ps_pre) <- sample_data(sd_pre)
 
 cat("\nMetS distribution at baseline:\n")
