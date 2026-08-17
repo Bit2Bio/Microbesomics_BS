@@ -204,7 +204,7 @@ Rscript scripts/05_deseq2_remission.R
 
 **Design**: `~ remission` — remitter (MetS+ PRE → MetS− POST) vs non_remitter (MetS+ PRE → MetS+ POST); positive log2FC = enriched in remitters.
 
-**Results**: 59 / 707 ASVs significant at FDR < 0.05 (21 enriched in remitters, 38 in non-remitters).
+**Results**: 59 / 707 ASVs significant at FDR < 0.05 (18 enriched in remitters, 41 in non-remitters).
 
 ---
 
