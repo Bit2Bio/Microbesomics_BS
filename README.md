@@ -183,7 +183,7 @@ Rscript scripts/04_deseq2_5vs6.R
 
 **Design**: `~ pz + groupIGA` — pz (patient ID) blocks between-patient variance; contrast is groupIGA 6 vs 5 (positive log2FC = enriched POST-surgery).
 
-**Results**: 255 / 707 ASVs significant at FDR < 0.05 (126 enriched POST, 129 enriched PRE).
+**Results**: 255 / 707 ASVs significant at FDR < 0.05 (162 enriched POST, 93 enriched PRE).
 
 ---
 
@@ -204,7 +204,7 @@ Rscript scripts/05_deseq2_remission.R
 
 **Design**: `~ remission` — remitter (MetS+ PRE → MetS− POST) vs non_remitter (MetS+ PRE → MetS+ POST); positive log2FC = enriched in remitters.
 
-**Results**: 150 / 707 ASVs significant at FDR < 0.05 (41 enriched in remitters, 109 in non-remitters).
+**Results**: 59 / 707 ASVs significant at FDR < 0.05 (21 enriched in remitters, 38 in non-remitters).
 
 ---
 
@@ -225,4 +225,4 @@ Rscript scripts/06_deseq2_mets_baseline.R
 
 **Design**: `~ MetS_group` — MetS_pos vs MetS_neg (reference); positive log2FC = enriched in MetS+.
 
-**Results**: 122 / 707 ASVs significant at FDR < 0.05 (59 enriched in MetS+, 63 enriched in MetS−).
+**Results**: 60 / 707 ASVs significant at FDR < 0.05 (27 enriched in MetS+, 33 enriched in MetS−).

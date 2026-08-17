@@ -68,10 +68,7 @@ print(table(sd_pre$MetS_group, useNA = "ifany"))
 
 # --- DESeq2 ------------------------------------------------------------------
 
-ps_ds <- ps_pre
-otu_table(ps_ds) <- otu_table(ps_ds) + 1
-
-dds <- phyloseq_to_deseq2(ps_ds, ~ MetS_group)
+dds <- phyloseq_to_deseq2(ps_pre, ~ MetS_group)
 dds <- DESeq(dds, test = "Wald", fitType = "parametric")
 
 # Positive log2FC = enriched in MetS+ (reference = MetS_neg)
@@ -86,7 +83,7 @@ summary(res)
 # --- Build results table with taxonomy ---------------------------------------
 
 sigtab <- as.data.frame(res)
-sigtab <- cbind(sigtab, as.data.frame(tax_table(ps_ds)))
+sigtab <- cbind(sigtab, as.data.frame(tax_table(ps_pre)))
 
 cat("\nSignificant ASVs (FDR < 0.05):", sum(sigtab$padj < 0.05, na.rm = TRUE), "\n")
 cat("  Enriched in MetS+  (log2FC > 0):",

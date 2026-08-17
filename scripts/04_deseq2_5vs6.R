@@ -58,14 +58,7 @@ cat("Groups:  ", levels(sample_data(ps)$groupIGA), "\n\n")
 
 # --- DESeq2 ------------------------------------------------------------------
 
-# Add pseudocount (+1) to avoid zeros; operate on a copy to preserve the
-# original object for any downstream analyses that need raw counts
-ps_ds <- ps
-otu_table(ps_ds) <- otu_table(ps_ds) + 1
-
-dds <- phyloseq_to_deseq2(ps_ds, ~ pz + groupIGA)
-dds <- estimateSizeFactors(dds)
-dds <- estimateDispersions(dds)
+dds <- phyloseq_to_deseq2(ps, ~ pz + groupIGA)
 dds <- DESeq(dds, test = "Wald", fitType = "parametric")
 
 # Contrast: POST (6) vs PRE (5); positive log2FC = enriched POST-surgery
@@ -80,7 +73,7 @@ summary(res)
 # --- Build results table with taxonomy ---------------------------------------
 
 sigtab <- as.data.frame(res)
-sigtab <- cbind(sigtab, as.data.frame(tax_table(ps_ds)))
+sigtab <- cbind(sigtab, as.data.frame(tax_table(ps)))
 
 cat("\nSignificant ASVs (FDR < 0.05):", sum(sigtab$padj < 0.05, na.rm = TRUE), "\n")
 cat("  Enriched POST (log2FC > 0):",

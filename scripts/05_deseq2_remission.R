@@ -27,6 +27,7 @@ BASE_DIR <- "/home/lorenzo/Microbesomics"
 
 library(phyloseq)
 library(DESeq2)
+library(apeglm)
 library(ggplot2)
 library(ggrepel)
 library(openxlsx)
@@ -91,10 +92,7 @@ print(table(sample_data(ps_pre)$remission))
 
 # --- DESeq2 ------------------------------------------------------------------
 
-ps_ds <- ps_pre
-otu_table(ps_ds) <- otu_table(ps_ds) + 1
-
-dds <- phyloseq_to_deseq2(ps_ds, ~ remission)
+dds <- phyloseq_to_deseq2(ps_pre, ~ remission)
 dds <- DESeq(dds, test = "Wald", fitType = "parametric")
 
 # Positive log2FC = enriched in remitters (reference = non_remitter)
@@ -103,13 +101,22 @@ res <- results(dds,
                cooksCutoff   = FALSE,
                pAdjustMethod = "fdr")
 
-cat("\nDESeq2 results summary:\n")
+# Shrink log2FC estimates with apeglm to stabilise noisy fold changes.
+# With only 6 non-remitters, raw log2FC for low-count ASVs can be very large
+# but unreliable; apeglm pulls them toward zero proportionally to uncertainty,
+# so the volcano correctly shows the most significant ASVs at the extremes.
+res <- lfcShrink(dds,
+                 coef = "remission_remitter_vs_non_remitter",
+                 type = "apeglm",
+                 res  = res)
+
+cat("\nDESeq2 results summary (after lfcShrink):\n")
 summary(res)
 
 # --- Build results table with taxonomy ---------------------------------------
 
 sigtab <- as.data.frame(res)
-sigtab <- cbind(sigtab, as.data.frame(tax_table(ps_ds)))
+sigtab <- cbind(sigtab, as.data.frame(tax_table(ps_pre)))
 
 cat("\nSignificant ASVs (FDR < 0.05):", sum(sigtab$padj < 0.05, na.rm = TRUE), "\n")
 cat("  Enriched in remitters    (log2FC > 0):",
@@ -164,7 +171,9 @@ p <- ggplot() +
                   aes(x = log2FoldChange, y = -log10(padj_safe),
                       label = label, color = Phylum),
                   size = 3, max.overlaps = Inf, show.legend = FALSE) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0,  linetype = "dashed") +
+  geom_vline(xintercept =  1, linetype = "dotted", color = "grey40") +
+  geom_vline(xintercept = -1, linetype = "dotted", color = "grey40") +
   geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
   scale_color_manual(values = phylum_pal) +
   coord_cartesian(ylim = c(0, max(-log10(df$padj_safe), na.rm = TRUE) * 1.05)) +
