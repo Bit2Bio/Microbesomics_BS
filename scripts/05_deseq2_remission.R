@@ -27,7 +27,6 @@ BASE_DIR <- "/home/lorenzo/Microbesomics"
 
 library(phyloseq)
 library(DESeq2)
-library(apeglm)
 library(ggplot2)
 library(ggrepel)
 library(openxlsx)
@@ -101,16 +100,7 @@ res <- results(dds,
                cooksCutoff   = FALSE,
                pAdjustMethod = "fdr")
 
-# Shrink log2FC estimates with apeglm to stabilise noisy fold changes.
-# With only 6 non-remitters, raw log2FC for low-count ASVs can be very large
-# but unreliable; apeglm pulls them toward zero proportionally to uncertainty,
-# so the volcano correctly shows the most significant ASVs at the extremes.
-res <- lfcShrink(dds,
-                 coef = "remission_remitter_vs_non_remitter",
-                 type = "apeglm",
-                 res  = res)
-
-cat("\nDESeq2 results summary (after lfcShrink):\n")
+cat("\nDESeq2 results summary:\n")
 summary(res)
 
 # --- Build results table with taxonomy ---------------------------------------
@@ -133,54 +123,58 @@ message("Written: ", out_xlsx)
 alpha <- 0.05
 
 df <- sigtab
-df$ASV       <- rownames(df)
-df$Phylum    <- ifelse(is.na(df$Phylum) | df$Phylum == "", "Unassigned", df$Phylum)
-df$Genus     <- ifelse(is.na(df$Genus)  | df$Genus  == "", NA, df$Genus)
-# Cap padj at the smallest observed non-zero value (preserves relative ordering
-# and avoids -log10(0) = Inf collapsing all extreme points to the same y level)
-min_nonzero <- min(df$padj[df$padj > 0], na.rm = TRUE)
-df$padj_safe <- ifelse(is.na(df$padj) | df$padj <= 0, min_nonzero * 0.1, df$padj)
+df$ASV    <- rownames(df)
+df$Phylum <- ifelse(is.na(df$Phylum) | df$Phylum == "", "Unassigned", df$Phylum)
+df$Genus  <- ifelse(is.na(df$Genus)  | df$Genus  == "", NA, df$Genus)
+
+# Use raw pvalue on y-axis: padj collapses many ASVs to the same floor value
+# (when padj ≈ 0), losing vertical spread. pvalue preserves ranking.
+# The FDR threshold line is drawn at the pvalue of the least significant
+# hit that still passes FDR < 0.05.
+df$pval_safe <- ifelse(is.na(df$pvalue) | df$pvalue <= 0, .Machine$double.eps, df$pvalue)
+
+sig_mask    <- !is.na(df$padj) & df$padj < alpha
+fdr_pval_threshold <- if (any(sig_mask)) max(df$pvalue[sig_mask], na.rm = TRUE) else alpha
 
 df$label <- ifelse(is.na(df$Genus),
                    paste0(df$ASV, "_", df$Phylum),
                    paste0(df$ASV, "_", df$Genus))
 
-sig <- subset(df, padj_safe <= alpha)
-ns  <- subset(df, padj_safe >  alpha)
+sig <- subset(df, sig_mask)
+ns  <- df[!sig_mask, ]
 
-# Select top 15 per side (by significance then |log2FC|) to ensure labels
-# appear on both sides of the volcano even when many points share the same
-# capped padj value
-sig_up   <- sig[sig$log2FoldChange > 0, ]
-sig_down <- sig[sig$log2FoldChange < 0, ]
-sig_up   <- sig_up[order(sig_up$padj_safe,   -abs(sig_up$log2FoldChange)),   ]
-sig_down <- sig_down[order(sig_down$padj_safe, -abs(sig_down$log2FoldChange)), ]
-sig_top  <- rbind(head(sig_up, 15), head(sig_down, 15))
+sig_lab  <- subset(sig, abs(log2FoldChange) > 1)
+sig_up   <- sig_lab[sig_lab$log2FoldChange > 0, ]
+sig_down <- sig_lab[sig_lab$log2FoldChange < 0, ]
+sig_up   <- sig_up[order(sig_up$pval_safe,    -abs(sig_up$log2FoldChange)),   ]
+sig_down <- sig_down[order(sig_down$pval_safe, -abs(sig_down$log2FoldChange)), ]
+sig_top  <- rbind(head(sig_up, 10), head(sig_down, 10))
 
 all_phyla  <- sort(unique(df$Phylum))
 phylum_pal <- setNames(scales::hue_pal()(length(all_phyla)), all_phyla)
 
 p <- ggplot() +
   geom_point(data = ns,
-             aes(x = log2FoldChange, y = -log10(padj_safe)),
+             aes(x = log2FoldChange, y = -log10(pval_safe)),
              color = "grey80", alpha = 0.6, size = 2) +
   geom_point(data = sig,
-             aes(x = log2FoldChange, y = -log10(padj_safe), color = Phylum),
+             aes(x = log2FoldChange, y = -log10(pval_safe), color = Phylum),
              alpha = 0.9, size = 3) +
   geom_text_repel(data = sig_top,
-                  aes(x = log2FoldChange, y = -log10(padj_safe),
+                  aes(x = log2FoldChange, y = -log10(pval_safe),
                       label = label, color = Phylum),
                   size = 3, max.overlaps = Inf, show.legend = FALSE) +
   geom_vline(xintercept = 0,  linetype = "dashed") +
   geom_vline(xintercept =  1, linetype = "dotted", color = "grey40") +
   geom_vline(xintercept = -1, linetype = "dotted", color = "grey40") +
-  geom_hline(yintercept = -log10(alpha), linetype = "dashed") +
+  geom_hline(yintercept = -log10(fdr_pval_threshold), linetype = "dashed") +
   scale_color_manual(values = phylum_pal) +
-  coord_cartesian(ylim = c(0, max(-log10(df$padj_safe), na.rm = TRUE) * 1.05)) +
+  coord_cartesian(xlim = c(-15, 15),
+                  ylim = c(0, max(-log10(df$pval_safe), na.rm = TRUE) * 1.05)) +
   theme_bw(base_size = 14) +
   theme(legend.position = "bottom") +
   labs(x     = "log2 fold change (remitters vs non-remitters)",
-       y     = "-log10 adjusted p-value",
+       y     = "-log10 p-value (FDR threshold line at padj = 0.05)",
        color = "Phylum")
 
 out_png <- file.path(BASE_DIR, "results/deseq2/volcano_remission.png")
