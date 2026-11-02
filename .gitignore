@@ -23,10 +23,11 @@
 # Claude instructions
 !CLAUDE.md
 
-# Processed data (anonymised outputs)
+# Processed data — microbiome only (no clinical data in git)
 !data/
 !data/processed/
-!data/processed/*.csv
+!data/processed/otu_table.csv
+!data/processed/taxonomy.csv
 
 # Old scripts (archived reference)
 !_old/
