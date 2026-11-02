@@ -1,0 +1,23 @@
+# =============================================================================
+# config.yaml — Microbesomics_BS pipeline parameters
+# =============================================================================
+
+# --- ASV feature filtering (workflow/scripts/03_filter_5vs6.R) ---------------
+filtering:
+  min_count:      4     # minimum reads per ASV per sample
+  min_prevalence: 0.10  # fraction of samples in which ASV must be present
+  var_pct:        0.10  # remove bottom 10% of ASVs by IQR; set 0 to skip
+
+# --- DESeq2 parameters (all comparison scripts) ------------------------------
+deseq2:
+  fdr_threshold:  0.05  # Benjamini-Hochberg adjusted p-value cutoff
+  top_n_labels:   25    # number of ASVs labelled on volcano plots
+
+# --- Taxonomy barplots -------------------------------------------------------
+barplots:
+  ranks:      ["Phylum", "Family", "Genus"]
+  comparisons: ["5vs6", "remission", "mets"]
+  top_n:      15   # taxa shown individually; remainder collapsed to "Other"
+  width_cm:   20
+  height_cm:  16
+  dpi:        300

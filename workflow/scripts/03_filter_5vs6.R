@@ -21,7 +21,7 @@ BASE_DIR <- "/home/lorenzo/Microbesomics"
 
 library(phyloseq)
 
-source(file.path(BASE_DIR, "R/filter_phyloseq.R"))
+source(file.path(BASE_DIR, "workflow/scripts/filter_phyloseq.R"))
 
 ps   <- readRDS(file.path(BASE_DIR, "data/processed/ps_raw.rds"))
 clin <- read.csv(file.path(BASE_DIR, "data/processed/clinical_all.csv"),

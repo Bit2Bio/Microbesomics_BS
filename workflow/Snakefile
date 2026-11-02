@@ -1,0 +1,197 @@
+configfile: "config/config.yaml"
+
+RANKS       = config["barplots"]["ranks"]
+COMPARISONS = config["barplots"]["comparisons"]
+
+SCRIPTS = "workflow/scripts"
+
+
+rule all:
+    input:
+        # --- Preprocessing ---
+        "data/processed/ps_raw.rds",
+        "data/processed/clinical_all.csv",
+        "data/processed/ps_filt_5vs6.rds",
+        # --- DESeq2 results ---
+        "results/deseq2/deseq2_5vs6_results.xlsx",
+        "results/deseq2/volcano_5vs6.png",
+        "results/deseq2/deseq2_remission_results.xlsx",
+        "results/deseq2/volcano_remission.png",
+        "results/deseq2/deseq2_mets_baseline_results.xlsx",
+        "results/deseq2/volcano_mets_baseline.png",
+        "results/deseq2/deseq2_remitters_vs_metsneg_results.xlsx",
+        "results/deseq2/volcano_remitters_vs_metsneg.png",
+        # --- Cross-comparison heatmap ---
+        "results/deseq2/heatmap_intersection.png",
+        # --- Taxonomy barplots ---
+        expand("results/metagenomics/barplot_{rank}_{comparison}.png",
+               rank=RANKS, comparison=COMPARISONS),
+        # --- Final report ---
+        "results/report/microbesomics_report.html"
+
+
+# -----------------------------------------------------------------------------
+# Preprocessing
+# -----------------------------------------------------------------------------
+
+rule import_qiime2:
+    # Imports QIIME2 QZA artifacts and builds a bare phyloseq object.
+    # Run once; depends on raw QZA files which are not tracked by git.
+    input:
+        "data/raw/qza/asv_table.qza",
+        "data/raw/qza/taxonomy.qza",
+        "data/raw/qza/fasttree_tree_rooted.qza",
+        "data/raw/qza/rep_seq.qza"
+    output:
+        "data/processed/ps_raw.rds"
+    shell:
+        "Rscript {SCRIPTS}/01_import_qiime2.R"
+
+
+rule preprocess_clinical:
+    # Reads the IGA Excel file, harmonises column names across sheets,
+    # computes MetS criteria (NCEP ATP III 2005) and writes clinical_all.csv.
+    input:
+        "data/raw/Copia di Microobesomics_clinical data IGA 260324.xlsx"
+    output:
+        "data/processed/clinical_all.csv",
+        "data/processed/clinical_all.xlsx"
+    shell:
+        "Rscript {SCRIPTS}/02_preprocess_clinical.R"
+
+
+rule filter_5vs6:
+    # Subsets phyloseq to the 33 complete bariatric surgery pairs and applies
+    # ASV feature filtering (count + prevalence + variance).
+    input:
+        ps      = "data/processed/ps_raw.rds",
+        clinical = "data/processed/clinical_all.csv"
+    output:
+        "data/processed/ps_filt_5vs6.rds"
+    shell:
+        "Rscript {SCRIPTS}/03_filter_5vs6.R"
+
+
+# -----------------------------------------------------------------------------
+# DESeq2 differential abundance analyses
+# -----------------------------------------------------------------------------
+
+rule deseq2_5vs6:
+    # POST (group 6) vs PRE (group 5) bariatric surgery — paired design.
+    input:
+        "data/processed/ps_filt_5vs6.rds"
+    output:
+        xlsx    = "results/deseq2/deseq2_5vs6_results.xlsx",
+        volcano = "results/deseq2/volcano_5vs6.png"
+    shell:
+        "Rscript {SCRIPTS}/04_deseq2_5vs6.R"
+
+
+rule deseq2_remission:
+    # MetS remitters vs non-remitters at baseline (PRE).
+    input:
+        ps       = "data/processed/ps_filt_5vs6.rds",
+        clinical = "data/processed/clinical_all.csv"
+    output:
+        xlsx    = "results/deseq2/deseq2_remission_results.xlsx",
+        volcano = "results/deseq2/volcano_remission.png"
+    shell:
+        "Rscript {SCRIPTS}/05_deseq2_remission.R"
+
+
+rule deseq2_mets_baseline:
+    # MetS+ vs MetS- at baseline (PRE).
+    input:
+        ps       = "data/processed/ps_filt_5vs6.rds",
+        clinical = "data/processed/clinical_all.csv"
+    output:
+        xlsx    = "results/deseq2/deseq2_mets_baseline_results.xlsx",
+        volcano = "results/deseq2/volcano_mets_baseline.png"
+    shell:
+        "Rscript {SCRIPTS}/06_deseq2_mets_baseline.R"
+
+
+rule deseq2_remitters_vs_metsneg:
+    # MetS+ remitters vs MetS- subjects at baseline (PRE).
+    input:
+        ps       = "data/processed/ps_filt_5vs6.rds",
+        clinical = "data/processed/clinical_all.csv"
+    output:
+        xlsx    = "results/deseq2/deseq2_remitters_vs_metsneg_results.xlsx",
+        volcano = "results/deseq2/volcano_remitters_vs_metsneg.png"
+    shell:
+        "Rscript {SCRIPTS}/08_deseq2_remitters_vs_metsneg.R"
+
+
+# -----------------------------------------------------------------------------
+# Cross-comparison visualisation
+# -----------------------------------------------------------------------------
+
+rule heatmap_intersection:
+    # log2FC heatmap across all three baseline comparisons for ASVs significant
+    # in at least one of remission or MetS analyses.
+    input:
+        "results/deseq2/deseq2_remission_results.xlsx",
+        "results/deseq2/deseq2_mets_baseline_results.xlsx",
+        "results/deseq2/deseq2_5vs6_results.xlsx"
+    output:
+        "results/deseq2/heatmap_intersection.png"
+    shell:
+        "Rscript {SCRIPTS}/07_heatmap_intersection.R"
+
+
+rule taxonomy_barplots:
+    # Stacked relative abundance barplot at one rank for one comparison.
+    # The same script handles all three comparisons via --comparison flag.
+    input:
+        ps       = "data/processed/ps_filt_5vs6.rds",
+        clinical = "data/processed/clinical_all.csv"
+    output:
+        "results/metagenomics/barplot_{rank}_{comparison}.png"
+    params:
+        rank       = "{rank}",
+        comparison = "{comparison}",
+        top_n      = config["barplots"]["top_n"],
+        width      = config["barplots"]["width_cm"],
+        height     = config["barplots"]["height_cm"],
+        dpi        = config["barplots"]["dpi"]
+    shell:
+        """
+        Rscript {SCRIPTS}/taxonomy_barplots.R \
+            --rank       {params.rank} \
+            --comparison {params.comparison} \
+            --top_n      {params.top_n} \
+            --width      {params.width} \
+            --height     {params.height} \
+            --dpi        {params.dpi} \
+            --ps         {input.ps} \
+            --clinical   {input.clinical} \
+            --out        {output}
+        """
+
+
+# -----------------------------------------------------------------------------
+# Report
+# -----------------------------------------------------------------------------
+
+rule html_report:
+    input:
+        # DESeq2 results
+        xlsx_5vs6         = "results/deseq2/deseq2_5vs6_results.xlsx",
+        xlsx_remission    = "results/deseq2/deseq2_remission_results.xlsx",
+        xlsx_mets         = "results/deseq2/deseq2_mets_baseline_results.xlsx",
+        xlsx_rem_metsneg  = "results/deseq2/deseq2_remitters_vs_metsneg_results.xlsx",
+        # Volcano plots
+        vol_5vs6          = "results/deseq2/volcano_5vs6.png",
+        vol_remission     = "results/deseq2/volcano_remission.png",
+        vol_mets          = "results/deseq2/volcano_mets_baseline.png",
+        vol_rem_metsneg   = "results/deseq2/volcano_remitters_vs_metsneg.png",
+        # Heatmap
+        heatmap           = "results/deseq2/heatmap_intersection.png",
+        # Barplots (all 9)
+        barplots          = expand("results/metagenomics/barplot_{rank}_{comparison}.png",
+                                   rank=RANKS, comparison=COMPARISONS)
+    output:
+        "results/report/microbesomics_report.html"
+    shell:
+        "python3 {SCRIPTS}/make_html_report.py --out {output}"

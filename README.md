@@ -62,27 +62,51 @@ All scripts use absolute paths anchored to the project root (`/home/lorenzo/Micr
 
 **Python** (called via `reticulate`): `pandas`, `numpy`, `statsmodels`, `pingouin` — environment managed separately via `envs/`.
 
+## Run
+
+```bash
+cd /home/lorenzo/Microbesomics
+snakemake --cores 4 -s workflow/Snakefile
+```
+
 ## Repository Structure
 
 ```
 Microbesomics/
-├── scripts/                          # Active analysis scripts (run in order)
+├── workflow/
+│   ├── Snakefile                     # Full pipeline definition
+│   └── scripts/                      # Analysis scripts and R helpers
+│       ├── 01_import_qiime2.R
+│       ├── 02_preprocess_clinical.R
+│       ├── 03_filter_5vs6.R
+│       ├── 04_deseq2_5vs6.R
+│       ├── 05_deseq2_remission.R
+│       ├── 06_deseq2_mets_baseline.R
+│       ├── 07_heatmap_intersection.R
+│       ├── 08_deseq2_remitters_vs_metsneg.R
+│       ├── taxonomy_barplots.R
+│       ├── make_html_report.py
+│       ├── filter_phyloseq.R         # Helper: ASV filtering function
+│       └── plot_taxon_barplot.R      # Helper: stacked barplot function
+├── config/
+│   └── config.yaml                   # Pipeline parameters (filtering, DESeq2, plots)
 ├── data/
 │   ├── raw/                          # Raw input files (not tracked by git)
 │   │   ├── Microobesomics_clinical data_dec2022.xlsx
 │   │   └── qza/                      # QIIME2 artifacts
 │   └── processed/                    # Clean output datasets
-│       └── bariatric_clinical.csv
 ├── results/                          # Figures and tables (not tracked by git)
+│   ├── deseq2/                       # Volcano plots and DESeq2 result tables
+│   ├── metagenomics/                 # Taxonomy barplots
+│   └── report/                       # Final HTML report
 └── _old/                             # Archived scripts from previous analysis
-    └── R-scripts/
 ```
 
 > Raw data and results are excluded from version control (patient data). Processed outputs in `data/processed/` are included as they contain only derived/aggregated variables.
 
 ## Scripts
 
-### `scripts/01_import_qiime2.R`
+### `workflow/scripts/01_import_qiime2.R`
 
 **Purpose**: Imports QIIME2 artifacts (QZA files) and builds a bare phyloseq object with 247 samples and 14741 ASVs. No sample metadata is attached at this stage. Feature filtering is NOT applied here — it is handled group-specifically by `R/filter_phyloseq.R` in each analysis script.
 
@@ -93,14 +117,14 @@ Microbesomics/
 
 **How to run**:
 ```r
-Rscript scripts/01_import_qiime2.R
+Rscript workflow/scripts/01_import_qiime2.R
 ```
 
 **Note on sample naming**: QZA internal IDs (`ID2988-N-N-boxK`) are renamed to `S1`..`S247` by extracting N via regex. These correspond to CODE IGA in all clinical metadata files.
 
 ---
 
-### `scripts/02_preprocess_clinical.R`
+### `workflow/scripts/02_preprocess_clinical.R`
 
 **Purpose**: Reads all four clinical sheets from the IGA Excel file, normalises column names, and stacks them into a single dataset with one row per sample. Columns present in some sheets but not others are filled with NA.
 
@@ -117,7 +141,7 @@ Rscript scripts/01_import_qiime2.R
 
 **How to run**:
 ```r
-Rscript scripts/02_preprocess_clinical.R
+Rscript workflow/scripts/02_preprocess_clinical.R
 ```
 
 **Column name harmonisation**: The four sheets use inconsistent naming for the same variables. All names are lowercased; known synonyms are unified:
@@ -147,7 +171,7 @@ Filtering within each group subset (rather than globally) avoids excluding ASVs 
 
 ---
 
-### `scripts/03_filter_5vs6.R`
+### `workflow/scripts/03_filter_5vs6.R`
 
 **Purpose**: Subsets the raw phyloseq to bariatric surgery samples (groups 5 and 6), attaches clinical metadata, and applies feature filtering via `R/filter_phyloseq.R`.
 
@@ -159,14 +183,14 @@ Filtering within each group subset (rather than globally) avoids excluding ASVs 
 
 **How to run**:
 ```r
-Rscript scripts/03_filter_5vs6.R
+Rscript workflow/scripts/03_filter_5vs6.R
 ```
 
 **Filters applied**: ≥4 reads in ≥10% of 66 samples (= 7 samples); bottom 10% by IQR removed (variance filter).
 
 ---
 
-### `scripts/04_deseq2_5vs6.R`
+### `workflow/scripts/04_deseq2_5vs6.R`
 
 **Purpose**: Differential abundance analysis (DESeq2), POST (group 6) vs PRE (group 5) bariatric surgery. Paired design with patient as blocking factor.
 
@@ -178,7 +202,7 @@ Rscript scripts/03_filter_5vs6.R
 
 **How to run**:
 ```r
-Rscript scripts/04_deseq2_5vs6.R
+Rscript workflow/scripts/04_deseq2_5vs6.R
 ```
 
 **Design**: `~ pz + groupIGA` — pz (patient ID) blocks between-patient variance; contrast is groupIGA 6 vs 5 (positive log2FC = enriched POST-surgery).
@@ -187,7 +211,7 @@ Rscript scripts/04_deseq2_5vs6.R
 
 ---
 
-### `scripts/05_deseq2_remission.R`
+### `workflow/scripts/05_deseq2_remission.R`
 
 **Purpose**: Differential abundance analysis (DESeq2), MetS remitters vs non-remitters at baseline (PRE, group 5).
 
@@ -199,7 +223,7 @@ Rscript scripts/04_deseq2_5vs6.R
 
 **How to run**:
 ```r
-Rscript scripts/05_deseq2_remission.R
+Rscript workflow/scripts/05_deseq2_remission.R
 ```
 
 **Design**: `~ remission` — remitter (MetS+ PRE → MetS− POST) vs non_remitter (MetS+ PRE → MetS+ POST); positive log2FC = enriched in remitters.
@@ -208,7 +232,7 @@ Rscript scripts/05_deseq2_remission.R
 
 ---
 
-### `scripts/06_deseq2_mets_baseline.R`
+### `workflow/scripts/06_deseq2_mets_baseline.R`
 
 **Purpose**: Differential abundance analysis (DESeq2), MetS+ vs MetS− at baseline (PRE, group 5) among the 33 complete pairs.
 
@@ -220,9 +244,46 @@ Rscript scripts/05_deseq2_remission.R
 
 **How to run**:
 ```r
-Rscript scripts/06_deseq2_mets_baseline.R
+Rscript workflow/scripts/06_deseq2_mets_baseline.R
 ```
 
 **Design**: `~ MetS_group` — MetS_pos vs MetS_neg (reference); positive log2FC = enriched in MetS+.
 
 **Results**: 60 / 707 ASVs significant at FDR < 0.05 (27 enriched in MetS+, 33 enriched in MetS−).
+
+---
+
+### `R/plot_taxon_barplot.R`
+
+Reusable function that generates a stacked relative abundance barplot at any taxonomic rank. Sourced by `run_barplots.sh`.
+
+**Arguments**:
+- `ps` — phyloseq object, already subsetted to samples of interest
+- `rank` — taxonomic rank: `"Phylum"`, `"Class"`, `"Order"`, `"Family"`, `"Genus"`
+- `group_var` — sample_data column to group by
+- `top_n` — number of top taxa shown individually (default 15); remainder collapsed to "Other"
+- `group_labels` — optional named vector to rename group levels for the plot
+- `palette` — optional colour vector; defaults to a 15-colour palette with "Other" always grey
+
+**Returns**: a ggplot object (caller saves).
+
+---
+
+### `run_barplots.sh`
+
+Generates stacked relative abundance barplots for all three comparisons across three taxonomic ranks (Phylum, Family, Genus). Calls `R/plot_taxon_barplot.R` inline via `Rscript`.
+
+**How to run**:
+```bash
+bash run_barplots.sh
+```
+
+**Output** (`results/metagenomics/`):
+
+| File | Description |
+|------|-------------|
+| `barplot_<rank>_5vs6.png` | PRE vs POST bariatric surgery |
+| `barplot_<rank>_remission.png` | Remitters vs non-remitters at PRE |
+| `barplot_<rank>_mets.png` | MetS+ vs MetS− at PRE |
+
+Ranks: Phylum, Family, Genus → 9 PNG total.

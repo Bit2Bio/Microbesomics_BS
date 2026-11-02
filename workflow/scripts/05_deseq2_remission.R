@@ -20,7 +20,7 @@
 #   results/deseq2/volcano_remission.png          — volcano plot
 #
 # Design: ~ remission (simple two-group comparison at the same timepoint)
-#   Positive log2FC = enriched in remitters.
+#   Positive log2FC = enriched in non-remitters.
 # =============================================================================
 
 BASE_DIR <- "/home/lorenzo/Microbesomics"
@@ -94,9 +94,9 @@ print(table(sample_data(ps_pre)$remission))
 dds <- phyloseq_to_deseq2(ps_pre, ~ remission)
 dds <- DESeq(dds, test = "Wald", fitType = "parametric")
 
-# Positive log2FC = enriched in remitters (reference = non_remitter)
+# Positive log2FC = enriched in non-remitters (reference = remitter)
 res <- results(dds,
-               contrast      = c("remission", "remitter", "non_remitter"),
+               contrast      = c("remission", "non_remitter", "remitter"),
                cooksCutoff   = FALSE,
                pAdjustMethod = "fdr")
 
@@ -109,9 +109,9 @@ sigtab <- as.data.frame(res)
 sigtab <- cbind(sigtab, as.data.frame(tax_table(ps_pre)))
 
 cat("\nSignificant ASVs (FDR < 0.05):", sum(sigtab$padj < 0.05, na.rm = TRUE), "\n")
-cat("  Enriched in remitters    (log2FC > 0):",
+cat("  Enriched in non-remitters (log2FC > 0):",
     sum(sigtab$padj < 0.05 & sigtab$log2FoldChange > 0, na.rm = TRUE), "\n")
-cat("  Enriched in non-remitters (log2FC < 0):",
+cat("  Enriched in remitters     (log2FC < 0):",
     sum(sigtab$padj < 0.05 & sigtab$log2FoldChange < 0, na.rm = TRUE), "\n\n")
 
 out_xlsx <- file.path(BASE_DIR, "results/deseq2/deseq2_remission_results.xlsx")
@@ -173,7 +173,7 @@ p <- ggplot() +
                   ylim = c(0, max(-log10(df$pval_safe), na.rm = TRUE) * 1.05)) +
   theme_bw(base_size = 14) +
   theme(legend.position = "bottom") +
-  labs(x     = "log2 fold change (remitters vs non-remitters)",
+  labs(x     = "log2 fold change (non-remitters vs remitters)",
        y     = "-log10 p-value (FDR threshold line at padj = 0.05)",
        color = "Phylum")
 

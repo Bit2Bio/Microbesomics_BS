@@ -12,13 +12,16 @@
 !.gitignore
 !README.md
 
-# New scripts
-!scripts/
-!scripts/**
+# Workflow (Snakemake pipeline + scripts)
+!workflow/
+!workflow/**
 
-# Utility functions
-!R/
-!R/**
+# Pipeline configuration
+!config/
+!config/**
+
+# Claude instructions
+!CLAUDE.md
 
 # Processed data (anonymised outputs)
 !data/
