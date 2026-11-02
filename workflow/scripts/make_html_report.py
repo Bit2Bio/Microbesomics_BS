@@ -21,6 +21,7 @@ Arguments:
 
 import argparse
 import base64
+import io
 import os
 import pandas as pd
 from pathlib import Path
@@ -55,6 +56,21 @@ def three_panel(images: list, labels: list) -> str:
     return f'<div style="display:flex;gap:16px;align-items:flex-start;">{cells}</div>'
 
 
+def xlsx_download_button(df: pd.DataFrame, filename: str, label: str) -> str:
+    """Encode a DataFrame as xlsx base64 and return an HTML download button."""
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="clinical_data")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return (
+        f'<a href="data:{mime};base64,{b64}" download="{filename}" '
+        f'style="display:inline-block;padding:8px 18px;background:var(--accent);'
+        f'color:#fff;border-radius:8px;text-decoration:none;font-size:0.88rem;'
+        f'font-weight:600;margin-top:10px;">{label}</a>'
+    )
+
+
 def df_to_table(df: pd.DataFrame, table_id: str) -> str:
     thead = "".join(
         f'<th onclick="sortTable(\'{table_id}\',{i})">{c}</th>'
@@ -67,6 +83,11 @@ def df_to_table(df: pd.DataFrame, table_id: str) -> str:
     tbody = "".join(rows)
     return f'<table id="{table_id}"><thead><tr>{thead}</tr></thead><tbody>{tbody}</tbody></table>'
 
+
+# --------------------------------------------------------------------------
+# Clinical data
+# --------------------------------------------------------------------------
+clinical_df = pd.read_csv(f"{BASE_DIR}/data/processed/clinical_all.csv", na_values="")
 
 # --------------------------------------------------------------------------
 # MetS criteria table
@@ -236,6 +257,15 @@ html = f"""<!DOCTYPE html>
       </div>
 
     </div>
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- Clinical data download                                   -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>Clinical Data</h2>
+    <p class="meta">Dataset completo: {len(clinical_df)} campioni × {len(clinical_df.columns)} variabili. Include tutti i gruppi (1–6), MetS criteri calcolati (NCEP ATP III 2005) e variabili demografiche, antropometriche, metaboliche e laboratoristiche.</p>
+    {xlsx_download_button(clinical_df, "clinical_all.xlsx", "⬇ Scarica clinical_all.xlsx")}
   </div>
 
   <!-- ======================================================= -->
