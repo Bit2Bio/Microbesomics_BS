@@ -263,8 +263,28 @@ html = f"""<!DOCTYPE html>
   <!-- Clinical data download                                   -->
   <!-- ======================================================= -->
   <div class="card">
-    <h2>Clinical Data</h2>
-    <p class="meta">Dataset completo: {len(clinical_df)} campioni × {len(clinical_df.columns)} variabili. Include tutti i gruppi (1–6), MetS criteri calcolati (NCEP ATP III 2005) e variabili demografiche, antropometriche, metaboliche e laboratoristiche.</p>
+    <h2>Clinical Data — preprocessed</h2>
+    <p style="font-size:0.9rem;line-height:1.7;margin-bottom:12px;">
+      Il file scaricabile è l'output di <code>02_preprocess_clinical.R</code>, non il dato grezzo.
+      Il preprocessing esegue i seguenti passaggi:
+    </p>
+    <ol style="font-size:0.88rem;line-height:1.8;color:var(--text);padding-left:20px;margin-bottom:14px;">
+      <li><strong>Lettura di 3 sheet</strong> dall'Excel IGA originale: <em>group1vs2</em> (intervento dietetico), <em>group3vs4</em> (coorte Mingrone), <em>group5vs6</em> (chirurgia bariatrica). Il sheet <em>clinical data merged - BASAL</em> è escluso perché contiene duplicati del baseline.</li>
+      <li><strong>Normalizzazione dei nomi colonna</strong> — lowercase e unificazione di sinonimi tra sheet (es. <code>DIABETE/IFG</code> → <code>diabetes</code>, <code>OSAS</code> → <code>saos</code>). Colonne presenti in alcuni sheet ma non altri sono riempite con NA.</li>
+      <li><strong>Aggiunta di <code>sample_id</code></strong> — chiave primaria <code>S1..S247</code> che collega ogni riga clinica al corrispondente campione nel phyloseq object.</li>
+      <li><strong>Flag <code>TG_pharmacotherapy</code></strong> — 3 campioni su farmaci TG-specifici (fenofibrato / omega-3) a specifici timepoint (S85, S200, S215) sono marcati; il loro TG misurato potrebbe essere artificialmente ridotto dal trattamento.</li>
+      <li><strong>Calcolo dei 5 criteri MetS</strong> (NCEP ATP III, revisione AHA/NHLBI 2005):
+        <ul style="margin-top:4px;">
+          <li>Obesità addominale: waist ≥ 102 cm (M) / ≥ 88 cm (F)</li>
+          <li>Iperglicemia: glucose 0' ≥ 100 mg/dL OR diabetes == 1</li>
+          <li>Ipertensione: SBP ≥ 130 OR DBP ≥ 85 OR hypertension == 1</li>
+          <li>HDL basso: HDL &lt; 40 mg/dL (M) / &lt; 50 mg/dL (F)</li>
+          <li>Ipertrigliceridemia: TG ≥ 150 mg/dL OR TG_pharmacotherapy == 1</li>
+        </ul>
+      </li>
+      <li><strong>Classificazione MetS composita</strong> — logica a tre vie: MetS = 1 se ≥ 3 criteri positivi, MetS = 0 se impossibile raggiungere 3 anche con dati mancanti, NA se i dati mancanti sono determinanti.</li>
+    </ol>
+    <p class="meta">Dataset finale: <strong>{len(clinical_df)} campioni</strong> × <strong>{len(clinical_df.columns)} variabili</strong>. Include tutti i gruppi (1–6) con variabili demografiche, antropometriche, metaboliche, laboratoristiche e i criteri MetS calcolati.</p>
     {xlsx_download_button(clinical_df, "clinical_all.xlsx", "⬇ Scarica clinical_all.xlsx")}
   </div>
 
