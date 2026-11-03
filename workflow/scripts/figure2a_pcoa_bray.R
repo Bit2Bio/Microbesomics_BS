@@ -103,53 +103,50 @@ run_pcoa <- function(d, dist_label, out_path) {
   cat(sprintf("Written: %s\n", out_path))
 
   list(dist_label = dist_label, r2 = r2, pv = pv, f = f,
-       PC1_pct = pct[1], PC2_pct = pct[2])
+       PC1_pct = pct[1], PC2_pct = pct[2], coords = coords)
 }
 
-# ── PRE vs POST inter-individual pairwise distances ───────────────────────────
-# PRE:  all pairwise distances among PRE samples  (baseline spread)
-# POST: all pairwise distances among POST samples (post-surgery spread)
-# Tests whether inter-individual beta diversity changes after surgery.
-run_distances <- function(d, dist_label, out_path) {
-  d_mat <- as.matrix(d)
+# ── Paired PC1 plot: PRE→POST per patient connected by line ───────────────────
+# Shows individual microbiome trajectories along the main ordination axis.
+run_paired <- function(coords, pc1_pct, dist_label, out_path) {
+  pairs_df <- merge(
+    coords[coords$timepoint == "PRE",  c("pz", "PC1")],
+    coords[coords$timepoint == "POST", c("pz", "PC1")],
+    by = "pz", suffixes = c("_pre", "_post")
+  )
 
-  pre_samps  <- rownames(meta_ord)[meta_ord$timepoint == "PRE"]
-  post_samps <- rownames(meta_ord)[meta_ord$timepoint == "POST"]
+  long <- data.frame(
+    pz        = rep(pairs_df$pz, 2),
+    PC1       = c(pairs_df$PC1_pre, pairs_df$PC1_post),
+    timepoint = factor(c(rep("PRE",  nrow(pairs_df)),
+                         rep("POST", nrow(pairs_df))),
+                       levels = c("PRE", "POST"))
+  )
 
-  idx_pre  <- which(upper.tri(d_mat[pre_samps,  pre_samps]),  arr.ind = TRUE)
-  idx_post <- which(upper.tri(d_mat[post_samps, post_samps]), arr.ind = TRUE)
-  pre_d    <- d_mat[pre_samps,  pre_samps ][idx_pre]
-  post_d   <- d_mat[post_samps, post_samps][idx_post]
-
-  wt <- wilcox.test(pre_d, post_d)
+  wt <- wilcox.test(pairs_df$PC1_pre, pairs_df$PC1_post, paired = TRUE)
   pv_label <- ifelse(wt$p.value < 0.001, "p<0.001",
               ifelse(wt$p.value < 0.01,  sprintf("p=%.3f", wt$p.value),
                                          sprintf("p=%.2f",  wt$p.value)))
 
-  df <- data.frame(
-    dist      = c(pre_d, post_d),
-    timepoint = factor(c(rep("PRE", length(pre_d)), rep("POST", length(post_d))),
-                       levels = c("PRE", "POST"))
-  )
+  y_max   <- max(long$PC1)
+  y_annot <- y_max + diff(range(long$PC1)) * 0.12
 
-  y_max   <- max(df$dist)
-  y_annot <- y_max * 1.08
-
-  p <- ggplot(df, aes(x = timepoint, y = dist)) +
-    geom_boxplot(aes(fill = timepoint), width = 0.45, outlier.size = 0.3,
-                 linewidth = 0.3, alpha = 0.75) +
+  p <- ggplot(long, aes(x = timepoint, y = PC1, group = pz)) +
+    geom_line(colour = "#cccccc", linewidth = 0.25, alpha = 0.8) +
+    geom_point(aes(colour = timepoint), size = 0.8, alpha = 0.85, shape = 16) +
     annotate("segment",
              x = 1, xend = 2, y = y_annot, yend = y_annot,
              linewidth = 0.25, colour = "#555") +
     annotate("text",
-             x = 1.5, y = y_annot * 1.02,
+             x = 1.5, y = y_annot + diff(range(long$PC1)) * 0.04,
              label = pv_label, size = 1.5, colour = "#444", vjust = 0) +
-    scale_fill_manual(values = c("PRE" = COL_PRE, "POST" = COL_POST)) +
-    scale_y_continuous(expand = expansion(mult = c(0.05, 0.18))) +
-    labs(x = NULL, y = dist_label) +
+    scale_colour_manual(values = c("PRE" = COL_PRE, "POST" = COL_POST)) +
+    scale_y_continuous(expand = expansion(mult = c(0.08, 0.2))) +
+    labs(x = NULL,
+         y = sprintf("PC1 (%.1f%%) — %s", pc1_pct, dist_label)) +
     theme_beta() +
     theme(legend.position = "none",
-          axis.title.y    = element_text(size = 3.5))
+          axis.title.y    = element_text(size = 3))
 
   ggsave(out_path, p, width = FIG_W, height = FIG_H, units = "in", dpi = 300)
   cat(sprintf("Written: %s\n", out_path))
@@ -159,11 +156,11 @@ run_distances <- function(d, dist_label, out_path) {
 d_bc  <- phyloseq::distance(ps, method = "bray")
 d_uuf <- phyloseq::distance(ps, method = "unifrac")
 
-res_bc  <- run_pcoa(d_bc,  "Bray-Curtis",        OUT_BC)
-run_distances(d_bc,        "Bray-Curtis",         OUT_BC_D)
+res_bc  <- run_pcoa(d_bc,  "Bray-Curtis",       OUT_BC)
+run_paired(res_bc$coords,  res_bc$PC1_pct,  "Bray-Curtis",       OUT_BC_D)
 
-res_uuf <- run_pcoa(d_uuf, "Unweighted UniFrac",  OUT_UUF)
-run_distances(d_uuf,       "Unweighted UniFrac",  OUT_UUF_D)
+res_uuf <- run_pcoa(d_uuf, "Unweighted UniFrac", OUT_UUF)
+run_paired(res_uuf$coords, res_uuf$PC1_pct, "Unweighted UniFrac", OUT_UUF_D)
 
 # ── PERMANOVA results table ───────────────────────────────────────────────────
 results <- do.call(rbind, lapply(list(res_bc, res_uuf), function(r) {
