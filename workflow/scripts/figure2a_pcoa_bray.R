@@ -106,44 +106,58 @@ run_pcoa <- function(d, dist_label, out_path) {
        PC1_pct = pct[1], PC2_pct = pct[2], coords = coords)
 }
 
-# ── Paired PC1 plot: PRE→POST per patient connected by line ───────────────────
-# Shows individual microbiome trajectories along the main ordination axis.
-run_paired <- function(coords, pc1_pct, dist_label, out_path) {
+# ── Paired distance-to-PRE-centroid plot: PRE→POST per patient ────────────────
+# Centroid = mean coordinate of PRE samples in PCoA space (all axes).
+# Each patient has one value at PRE and one at POST; connected by line.
+# Captures the full multivariate shift without being tied to one PC axis.
+run_paired <- function(d, dist_label, out_path) {
+  d_mat      <- as.matrix(d)
+  pre_samps  <- rownames(meta_ord)[meta_ord$timepoint == "PRE"]
+  post_samps <- rownames(meta_ord)[meta_ord$timepoint == "POST"]
+
+  # centroid of PRE samples = mean pairwise distance to all other PRE samples
+  # (medoid-free: use mean distance to PRE group as a scalar per sample)
+  pre_centroid_dist <- function(samps) {
+    rowMeans(d_mat[samps, pre_samps, drop = FALSE])
+  }
+  pre_d  <- pre_centroid_dist(pre_samps)
+  post_d <- pre_centroid_dist(post_samps)
+
+  # match pairs by pz
   pairs_df <- merge(
-    coords[coords$timepoint == "PRE",  c("pz", "PC1")],
-    coords[coords$timepoint == "POST", c("pz", "PC1")],
-    by = "pz", suffixes = c("_pre", "_post")
+    data.frame(pz = meta_ord[pre_samps,  "pz"], pre  = pre_d,  stringsAsFactors = FALSE),
+    data.frame(pz = meta_ord[post_samps, "pz"], post = post_d, stringsAsFactors = FALSE),
+    by = "pz"
   )
 
   long <- data.frame(
     pz        = rep(pairs_df$pz, 2),
-    PC1       = c(pairs_df$PC1_pre, pairs_df$PC1_post),
+    dist      = c(pairs_df$pre, pairs_df$post),
     timepoint = factor(c(rep("PRE",  nrow(pairs_df)),
                          rep("POST", nrow(pairs_df))),
                        levels = c("PRE", "POST"))
   )
 
-  wt <- wilcox.test(pairs_df$PC1_pre, pairs_df$PC1_post, paired = TRUE)
+  wt <- wilcox.test(pairs_df$pre, pairs_df$post, paired = TRUE)
   pv_label <- ifelse(wt$p.value < 0.001, "p<0.001",
               ifelse(wt$p.value < 0.01,  sprintf("p=%.3f", wt$p.value),
                                          sprintf("p=%.2f",  wt$p.value)))
 
-  y_max   <- max(long$PC1)
-  y_annot <- y_max + diff(range(long$PC1)) * 0.12
+  y_max   <- max(long$dist)
+  y_annot <- y_max + diff(range(long$dist)) * 0.12
 
-  p <- ggplot(long, aes(x = timepoint, y = PC1, group = pz)) +
+  p <- ggplot(long, aes(x = timepoint, y = dist, group = pz)) +
     geom_line(colour = "#cccccc", linewidth = 0.25, alpha = 0.8) +
     geom_point(aes(colour = timepoint), size = 0.8, alpha = 0.85, shape = 16) +
     annotate("segment",
              x = 1, xend = 2, y = y_annot, yend = y_annot,
              linewidth = 0.25, colour = "#555") +
     annotate("text",
-             x = 1.5, y = y_annot + diff(range(long$PC1)) * 0.04,
+             x = 1.5, y = y_annot + diff(range(long$dist)) * 0.04,
              label = pv_label, size = 1.5, colour = "#444", vjust = 0) +
     scale_colour_manual(values = c("PRE" = COL_PRE, "POST" = COL_POST)) +
     scale_y_continuous(expand = expansion(mult = c(0.08, 0.2))) +
-    labs(x = NULL,
-         y = sprintf("PC1 (%.1f%%) — %s", pc1_pct, dist_label)) +
+    labs(x = NULL, y = sprintf("Distance to PRE centroid\n(%s)", dist_label)) +
     theme_beta() +
     theme(legend.position = "none",
           axis.title.y    = element_text(size = 3))
@@ -156,11 +170,11 @@ run_paired <- function(coords, pc1_pct, dist_label, out_path) {
 d_bc  <- phyloseq::distance(ps, method = "bray")
 d_uuf <- phyloseq::distance(ps, method = "unifrac")
 
-res_bc  <- run_pcoa(d_bc,  "Bray-Curtis",       OUT_BC)
-run_paired(res_bc$coords,  res_bc$PC1_pct,  "Bray-Curtis",       OUT_BC_D)
+res_bc  <- run_pcoa(d_bc,  "Bray-Curtis",        OUT_BC)
+run_paired(d_bc,           "Bray-Curtis",         OUT_BC_D)
 
-res_uuf <- run_pcoa(d_uuf, "Unweighted UniFrac", OUT_UUF)
-run_paired(res_uuf$coords, res_uuf$PC1_pct, "Unweighted UniFrac", OUT_UUF_D)
+res_uuf <- run_pcoa(d_uuf, "Unweighted UniFrac",  OUT_UUF)
+run_paired(d_uuf,          "Unweighted UniFrac",  OUT_UUF_D)
 
 # ── PERMANOVA results table ───────────────────────────────────────────────────
 results <- do.call(rbind, lapply(list(res_bc, res_uuf), function(r) {
