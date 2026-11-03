@@ -1,12 +1,7 @@
 """
-figure1_assemble.py
-
-Row 1: panels a–d (ridge plots + alluvial).
-Row 2: panels e–g (PCoA Bray-Curtis, Weighted UniFrac, Unweighted UniFrac).
-
-Each row is assembled separately at pixel level (panels padded to row height,
-then concatenated horizontally). The narrower row is centred under the wider
-one by adding white columns on each side.
+Assembles figure1a, figure1b, figure1c, figure1d side by side into
+results/figures/figure1_combined.png. Panels are centre-padded vertically
+to a common height before concatenation.
 """
 
 import os
@@ -18,37 +13,27 @@ import matplotlib.image as mpimg
 
 BASE_DIR = "/home/lorenzo/Microbesomics"
 
-ROW1 = [
+PANELS = [
     os.path.join(BASE_DIR, "results/figures/figure1a.png"),
     os.path.join(BASE_DIR, "results/figures/figure1b.png"),
     os.path.join(BASE_DIR, "results/figures/figure1c.png"),
     os.path.join(BASE_DIR, "results/figures/figure1d_mets_alluvial.png"),
 ]
-ROW2 = [
-    os.path.join(BASE_DIR, "results/figures/figure2a_pcoa_braycurtis.png"),
-    os.path.join(BASE_DIR, "results/figures/figure2b_bc_distances.png"),
-    os.path.join(BASE_DIR, "results/figures/figure2c_pcoa_unifrac.png"),
-    os.path.join(BASE_DIR, "results/figures/figure2d_uuf_distances.png"),
-]
-LABELS_R1 = ["a", "b", "c", "d"]
-LABELS_R2 = ["e", "f", "g", "h"]
-OUT = os.path.join(BASE_DIR, "results/figures/figure1_combined.png")
-
-DPI = 300
+LABELS = ["a", "b", "c", "d"]
+OUT    = os.path.join(BASE_DIR, "results/figures/figure1_combined.png")
+DPI    = 300
 
 
 def read_rgba(path):
-    """Load PNG as float32 RGBA (ensures uniform channel count)."""
     img = mpimg.imread(path)
-    if img.ndim == 2:                          # grayscale → RGBA
+    if img.ndim == 2:
         img = np.stack([img]*3 + [np.ones_like(img)], axis=-1)
-    elif img.shape[2] == 3:                    # RGB → RGBA
+    elif img.shape[2] == 3:
         img = np.concatenate([img, np.ones((*img.shape[:2], 1), dtype=img.dtype)], axis=-1)
     return img.astype(np.float32)
 
 
 def pad_height(img, target_h):
-    """Centre-pad vertically with white rows."""
     h, w, c = img.shape
     if h >= target_h:
         return img
@@ -60,67 +45,29 @@ def pad_height(img, target_h):
                       np.repeat(white, bottom, axis=0)])
 
 
-def pad_width(img, target_w):
-    """Centre-pad horizontally with white columns."""
-    h, w, c = img.shape
-    if w >= target_w:
-        return img
-    left  = (target_w - w) // 2
-    right = target_w - w - left
-    white = np.ones((h, 1, c), dtype=img.dtype)
-    return np.hstack([np.repeat(white, left, axis=1),
-                      img,
-                      np.repeat(white, right, axis=1)])
-
-
-def add_label(img, label, font_px=12):
-    """Burn a bold panel label into the top-left corner via matplotlib."""
+def add_label(img, label):
     h, w = img.shape[:2]
     fig, ax = plt.subplots(figsize=(w/DPI, h/DPI), dpi=DPI)
     ax.imshow(img, aspect="auto", interpolation="lanczos")
-    ax.text(0.012, 0.985, label,
-            transform=ax.transAxes,
-            fontsize=4, fontweight="bold", va="top", ha="left",
-            color="#111")
+    ax.text(0.012, 0.985, label, transform=ax.transAxes,
+            fontsize=4, fontweight="bold", va="top", ha="left", color="#111")
     ax.axis("off")
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     fig.canvas.draw()
     buf = np.frombuffer(fig.canvas.tostring_argb(), dtype=np.uint8)
     buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (4,))
     plt.close(fig)
-    # tostring_argb → ARGB; reorder to RGBA
-    rgba = buf[:, :, [1, 2, 3, 0]].astype(np.float32) / 255.0
-    return rgba
+    return buf[:, :, [1, 2, 3, 0]].astype(np.float32) / 255.0
 
 
-# ── Load images ───────────────────────────────────────────────────────────────
-imgs_r1 = [read_rgba(p) for p in ROW1]
-imgs_r2 = [read_rgba(p) for p in ROW2]
+imgs   = [read_rgba(p) for p in PANELS]
+imgs   = [add_label(img, lbl) for img, lbl in zip(imgs, LABELS)]
+max_h  = max(img.shape[0] for img in imgs)
+row    = np.concatenate([pad_height(img, max_h) for img in imgs], axis=1)
 
-# ── Add panel labels ──────────────────────────────────────────────────────────
-imgs_r1 = [add_label(img, lbl) for img, lbl in zip(imgs_r1, LABELS_R1)]
-imgs_r2 = [add_label(img, lbl) for img, lbl in zip(imgs_r2, LABELS_R2)]
-
-# ── Build rows ────────────────────────────────────────────────────────────────
-max_h_r1 = max(img.shape[0] for img in imgs_r1)
-row1 = np.concatenate([pad_height(img, max_h_r1) for img in imgs_r1], axis=1)
-
-max_h_r2 = max(img.shape[0] for img in imgs_r2)
-row2 = np.concatenate([pad_height(img, max_h_r2) for img in imgs_r2], axis=1)
-
-# ── Align widths (centre narrower row) ───────────────────────────────────────
-w1, w2 = row1.shape[1], row2.shape[1]
-target_w = max(w1, w2)
-row1 = pad_width(row1, target_w)
-row2 = pad_width(row2, target_w)
-
-# ── Stack rows ────────────────────────────────────────────────────────────────
-combined = np.vstack([row1, row2])
-
-# ── Save ──────────────────────────────────────────────────────────────────────
-fig, ax = plt.subplots(figsize=(combined.shape[1]/DPI, combined.shape[0]/DPI), dpi=DPI)
+fig, ax = plt.subplots(figsize=(row.shape[1]/DPI, row.shape[0]/DPI), dpi=DPI)
 fig.patch.set_facecolor("white")
-ax.imshow(combined, aspect="auto", interpolation="lanczos")
+ax.imshow(row, aspect="auto", interpolation="lanczos")
 ax.axis("off")
 plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 plt.savefig(OUT, dpi=DPI, bbox_inches="tight")
