@@ -90,6 +90,168 @@ def df_to_table(df: pd.DataFrame, table_id: str) -> str:
 clinical_df = pd.read_csv(f"{BASE_DIR}/data/processed/clinical_all.csv", na_values="")
 
 # --------------------------------------------------------------------------
+# Descriptive baseline table
+# --------------------------------------------------------------------------
+_desc_path = f"{BASE_DIR}/results/tables/descriptive_baseline.csv"
+
+def _build_desc_html() -> str:
+    if not Path(_desc_path).exists():
+        return "<p class='missing'>descriptive_baseline.csv not found — run descriptive_clinical.py first.</p>"
+    desc = pd.read_csv(_desc_path)
+
+    def _cov(val):
+        val = str(val) if pd.notna(val) and str(val).strip() not in ("", "nan") else ""
+        if not val:
+            return ""
+        style = ("color:#e67e22;font-weight:600;" if "miss." in val
+                 else "color:var(--muted);font-size:0.82em;")
+        return f'<span style="{style}">{val}</span>'
+
+    def _p(val):
+        val = str(val) if pd.notna(val) and str(val) != "nan" else "—"
+        if val == "<0.001":
+            return f'<strong style="color:#c0392b;">{val}</strong>'
+        try:
+            if float(val) < 0.05:
+                return f'<strong style="color:#c0392b;">{val}</strong>'
+        except ValueError:
+            pass
+        return val
+
+    lines = ['<table id="tbl-desc"><thead><tr>'
+             '<th>Variable</th>'
+             '<th>PRE</th><th>n PRE</th>'
+             '<th>POST</th><th>n POST</th>'
+             '<th>p-value</th><th>p-adj (BH)</th>'
+             '</tr></thead><tbody>']
+    prev_section = None
+    for _, row in desc.iterrows():
+        if row["Section"] != prev_section:
+            lines.append(
+                f'<tr style="background:var(--accent-bg);font-weight:600;">'
+                f'<td colspan="7">{row["Section"]}</td></tr>'
+            )
+            prev_section = row["Section"]
+        lines.append(
+            f'<tr><td>{row["Variable"]}</td>'
+            f'<td>{row["PRE"]}</td><td>{_cov(row["n PRE"])}</td>'
+            f'<td>{row["POST"]}</td><td>{_cov(row["n POST"])}</td>'
+            f'<td>{_p(row["p-value"])}</td><td>{_p(row["p-adj"])}</td></tr>'
+        )
+    lines.append("</tbody></table>")
+    return "\n".join(lines)
+
+desc_table_html = _build_desc_html()
+
+# --------------------------------------------------------------------------
+# MetS-stratified descriptive table
+# --------------------------------------------------------------------------
+_mets_path = f"{BASE_DIR}/results/tables/descriptive_mets_stratified.csv"
+
+def _build_mets_html() -> str:
+    if not Path(_mets_path).exists():
+        return "<p class='missing'>descriptive_mets_stratified.csv not found — run descriptive_mets_stratified.py first.</p>"
+    desc = pd.read_csv(_mets_path)
+
+    def _cov(val):
+        val = str(val) if pd.notna(val) and str(val).strip() not in ("", "nan") else ""
+        if not val:
+            return ""
+        style = ("color:#e67e22;font-weight:600;" if "miss." in val
+                 else "color:var(--muted);font-size:0.82em;")
+        return f'<span style="{style}">{val}</span>'
+
+    def _p(val):
+        val = str(val) if pd.notna(val) and str(val) != "nan" else "—"
+        if val == "<0.001":
+            return f'<strong style="color:#c0392b;">{val}</strong>'
+        try:
+            if float(val) < 0.05:
+                return f'<strong style="color:#c0392b;">{val}</strong>'
+        except ValueError:
+            pass
+        return val
+
+    lines = ['<table id="tbl-mets-strat"><thead><tr>'
+             '<th>Variable</th>'
+             '<th>MetS+ (n=28)</th><th>n</th>'
+             '<th>MetS− (n=5)</th><th>n</th>'
+             '<th>p-value</th><th>p-adj (BH)</th>'
+             '</tr></thead><tbody>']
+    prev_section = None
+    for _, row in desc.iterrows():
+        if row["Section"] != prev_section:
+            lines.append(
+                f'<tr style="background:var(--accent-bg);font-weight:600;">'
+                f'<td colspan="7">{row["Section"]}</td></tr>'
+            )
+            prev_section = row["Section"]
+        lines.append(
+            f'<tr><td>{row["Variable"]}</td>'
+            f'<td>{row["MetS+"]}</td><td>{_cov(row["n MetS+"])}</td>'
+            f'<td>{row["MetS−"]}</td><td>{_cov(row["n MetS−"])}</td>'
+            f'<td>{_p(row["p-value"])}</td><td>{_p(row["p-adj"])}</td></tr>'
+        )
+    lines.append("</tbody></table>")
+    return "\n".join(lines)
+
+mets_strat_html = _build_mets_html()
+
+# --------------------------------------------------------------------------
+# Remission-stratified descriptive table
+# --------------------------------------------------------------------------
+_rem_path = f"{BASE_DIR}/results/tables/descriptive_remission_stratified.csv"
+
+def _build_rem_html() -> str:
+    if not Path(_rem_path).exists():
+        return "<p class='missing'>descriptive_remission_stratified.csv not found — run descriptive_remission_stratified.py first.</p>"
+    desc = pd.read_csv(_rem_path)
+
+    def _cov(val):
+        val = str(val) if pd.notna(val) and str(val).strip() not in ("", "nan") else ""
+        if not val:
+            return ""
+        style = ("color:#e67e22;font-weight:600;" if "miss." in val
+                 else "color:var(--muted);font-size:0.82em;")
+        return f'<span style="{style}">{val}</span>'
+
+    def _p(val):
+        val = str(val) if pd.notna(val) and str(val) != "nan" else "—"
+        if val == "<0.001":
+            return f'<strong style="color:#c0392b;">{val}</strong>'
+        try:
+            if float(val) < 0.05:
+                return f'<strong style="color:#c0392b;">{val}</strong>'
+        except ValueError:
+            pass
+        return val
+
+    lines = ['<table id="tbl-rem-strat"><thead><tr>'
+             '<th>Variable</th>'
+             '<th>Remitters (n=22)</th><th>n</th>'
+             '<th>Non-remitters (n=6)</th><th>n</th>'
+             '<th>p-value</th><th>p-adj (BH)</th>'
+             '</tr></thead><tbody>']
+    prev_section = None
+    for _, row in desc.iterrows():
+        if row["Section"] != prev_section:
+            lines.append(
+                f'<tr style="background:var(--accent-bg);font-weight:600;">'
+                f'<td colspan="7">{row["Section"]}</td></tr>'
+            )
+            prev_section = row["Section"]
+        lines.append(
+            f'<tr><td>{row["Variable"]}</td>'
+            f'<td>{row["Remitters"]}</td><td>{_cov(row["n Remitters"])}</td>'
+            f'<td>{row["Non-remitters"]}</td><td>{_cov(row["n Non-rem"])}</td>'
+            f'<td>{_p(row["p-value"])}</td><td>{_p(row["p-adj"])}</td></tr>'
+        )
+    lines.append("</tbody></table>")
+    return "\n".join(lines)
+
+rem_strat_html = _build_rem_html()
+
+# --------------------------------------------------------------------------
 # MetS criteria table
 # --------------------------------------------------------------------------
 CRITERIA = [
@@ -221,9 +383,16 @@ html = f"""<!DOCTYPE html>
       <div>
         <h3>Cohort</h3>
         <ul class="notes" style="color:var(--text);">
-          <li>n = 33 patients, complete PRE / POST pairs</li>
-          <li>Bariatric surgery (Groups 5 and 6)</li>
-          <li>All samples collected at the same institution</li>
+          <li>n = 33 patients, complete PRE / POST bariatric surgery pairs (66 samples)</li>
+          <li>MetS at PRE: <strong>28 MetS+</strong> (85%) · <strong>5 MetS−</strong> (15%)</li>
+          <li>MetS at POST: <strong>6 MetS+</strong> (18%) · <strong>27 MetS−</strong> (82%)</li>
+        </ul>
+
+        <h3>Remission classification (PRE → POST)</h3>
+        <ul class="notes" style="color:var(--text);">
+          <li><strong>Remitters</strong>: MetS+ → MetS− &nbsp; n = 22 (67%)</li>
+          <li><strong>Non-remitters</strong>: MetS+ → MetS+ &nbsp; n = 6 (18%)</li>
+          <li><strong>MetS−</strong>: MetS− at PRE &nbsp; n = 5 (15%)</li>
         </ul>
 
         <h3>Omics platform</h3>
@@ -232,12 +401,12 @@ html = f"""<!DOCTYPE html>
           <li>QIIME2 processing — ASVs, SILVA taxonomy, FastTree phylogeny</li>
         </ul>
 
-        <h3>Comparisons</h3>
+        <h3>Comparisons (DESeq2)</h3>
         <ul class="notes" style="color:var(--text);">
-          <li>PRE vs POST surgery (paired, n = 33)</li>
-          <li>MetS remitters vs non-remitters at PRE (n = 28 MetS+)</li>
+          <li>PRE vs POST surgery — paired design (n = 33)</li>
+          <li>Remitters vs Non-remitters at PRE (22 vs 6)</li>
           <li>MetS+ vs MetS− at PRE (28 vs 5)</li>
-          <li>MetS+ remitters vs MetS− at PRE (22 vs 5)</li>
+          <li>Remitters vs MetS− at PRE (22 vs 5)</li>
         </ul>
       </div>
 
@@ -257,6 +426,23 @@ html = f"""<!DOCTYPE html>
       </div>
 
     </div>
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- QC — Rarefaction curves                                  -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>QC — Rarefaction curves (sequencing depth)</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Curva di rarefazione per ognuno dei 66 campioni (33 coppie PRE/POST).
+      Viola = PRE · Teal = POST.
+      Le linee tratteggiate indicano tre soglie candidate per la rarefazione:
+      min (8,069 reads — outlier), 10° percentile (~123,923), 20° percentile (~144,977).
+      La maggior parte delle curve raggiunge il plateau intorno a 100,000–150,000 reads.
+      Il campione a 8,069 reads è un outlier marcato che andrà escluso o gestito separatamente.
+    </p>
+    {img_tag(f"{BASE_DIR}/results/figures/qc/rarefaction_curves.png",
+             style="width:80%;display:block;margin:0 auto;")}
   </div>
 
   <!-- ======================================================= -->
@@ -286,6 +472,71 @@ html = f"""<!DOCTYPE html>
     </ol>
     <p class="meta">Dataset finale: <strong>{len(clinical_df)} campioni</strong> × <strong>{len(clinical_df.columns)} variabili</strong>. Include tutti i gruppi (1–6) con variabili demografiche, antropometriche, metaboliche, laboratoristiche e i criteri MetS calcolati.</p>
     {xlsx_download_button(clinical_df, "clinical_all.xlsx", "⬇ Scarica clinical_all.xlsx")}
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- Descriptive baseline table                               -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>Clinical characteristics — PRE vs POST bariatric surgery (n=33 pairs)</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Continuous: median [IQR]; paired Wilcoxon signed-rank test.
+      Binary: n (%); McNemar test.
+      Variables with <code>compare: no</code> (age, sex, smoking, cvd, remission) riportano solo il valore PRE — il confronto non è interpretabile per queste variabili.
+      Coverage in arancione quando &lt; 33/33. p-value significativi (p &lt; 0.05) in rosso.
+      Selezione variabili: <code>config/config.yaml → clinical_descriptive</code>.
+    </p>
+    <div class="table-scroll">
+      {desc_table_html}
+    </div>
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- MetS-stratified descriptive table                        -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>MetS+ vs MetS− at PRE (n=28 vs n=5)</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Confronto trasversale al baseline (PRE) tra soggetti MetS+ e MetS−.
+      Continui: mediana [IQR], Mann-Whitney U. Binari: n (%), Fisher exact.
+      Correzione BH separata per famiglia di test (Mann-Whitney / Fisher).
+      <strong>Nota:</strong> MetS− n=5 — i test sono gravemente sottopotenziati;
+      i p-value sono riportati per completezza ma non sono interpretabili come evidenza.
+    </p>
+    <div class="table-scroll">
+      {mets_strat_html}
+    </div>
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- Remission-stratified descriptive table                   -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>Remitters vs Non-remitters at PRE (n=22 vs n=6)</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Solo soggetti MetS+ (n=28). MetS− esclusi — la remissione non è definita per loro.
+      Continui: mediana [IQR], Mann-Whitney U. Binari: n (%), Fisher exact.
+      Correzione BH separata per famiglia di test.
+      <strong>Nota:</strong> Non-remitters n=6 — i test sono sottopotenziati;
+      le tendenze raw sono riportate come segnale esplorativo.
+    </p>
+    <div class="table-scroll">
+      {rem_strat_html}
+    </div>
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- Log2FC clinical figure                                   -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>Clinical changes PRE → POST — log₂(fold change)</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Ridge plot delle distribuzioni di log₂(POST/PRE) per ogni variabile clinica continua (n=33 coppie paired).
+      La linea tratteggiata indica la mediana. Stelle: p-adj Wilcoxon signed-rank con correzione BH
+      (* &lt;0.05 · ** &lt;0.01 · *** &lt;0.001). DBP non significativa dopo correzione.
+    </p>
+    {img_tag(f"{BASE_DIR}/results/figures/figure_lfc_clinical.png",
+             style="width:55%;display:block;margin:0 auto;")}
   </div>
 
   <!-- ======================================================= -->

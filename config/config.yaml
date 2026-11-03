@@ -13,6 +13,66 @@ deseq2:
   fdr_threshold:  0.05  # Benjamini-Hochberg adjusted p-value cutoff
   top_n_labels:   25    # number of ASVs labelled on volcano plots
 
+# --- Descriptive statistics table (workflow/scripts/descriptive_clinical.py) --
+# type:    continuous → median [IQR];  binary/categorical → n (%)
+# compare: yes → Wilcoxon paired (continuous) or McNemar (binary) PRE vs POST
+#          no  → show PRE value only (no test); used for fixed/derived variables
+clinical_descriptive:
+  Demographics:
+    age:    {type: continuous, compare: no}   # trivially increases with follow-up
+    sex:    {type: binary,     compare: no}   # 0=male, 1=female; never changes
+  Anthropometrics:
+    weight: {type: continuous, compare: yes}  # kg
+    bmi:    {type: continuous, compare: yes}  # kg/m²
+    waist:  {type: continuous, compare: yes}  # cm
+    hip:    {type: continuous, compare: yes}  # cm
+  "Vital signs":
+    sbp:    {type: continuous, compare: yes}  # mmHg
+    dbp:    {type: continuous, compare: yes}  # mmHg
+    pulse:  {type: continuous, compare: yes}  # bpm
+  Comorbidities:
+    hypertension:  {type: binary, compare: yes}
+    diabetes:      {type: binary, compare: yes}
+    dyslipidaemia: {type: binary, compare: yes}
+    saos:          {type: binary, compare: yes}
+    cvd:           {type: binary, compare: no}   # historical flag, not expected to change
+    smoking:       {type: categorical, compare: no}  # 0=never, 1=former, 2=current
+  "Body composition":
+    "% fat mass":  {type: continuous, compare: yes}  # BIA; n=32/33
+    "kg fat mass": {type: continuous, compare: yes}  # BIA; n=32/33
+  "Glucose metabolism":
+    "glucose 0'":  {type: continuous, compare: yes}  # fasting, mg/dL
+    hba1c:         {type: continuous, compare: yes}  # mmol/mol (IFCC)
+    "insulin 0'":  {type: continuous, compare: yes}  # fasting, mU/L
+    homa:          {type: continuous, compare: yes}
+    matsuda:       {type: continuous, compare: yes}  # n=31/33
+    quicki:        {type: continuous, compare: yes}
+  "OGTT":
+    "auc glucose ogtt": {type: continuous, compare: yes}  # mg/dL·min
+    "auc insulin ogtt": {type: continuous, compare: yes}  # mU/L·min
+  Lipids:
+    "totale cholesterol": {type: continuous, compare: yes}  # mg/dL
+    hdl:          {type: continuous, compare: yes}
+    ldl:          {type: continuous, compare: yes}
+    triglycerides: {type: continuous, compare: yes}
+  Liver:
+    got:           {type: continuous, compare: yes}  # AST, U/L
+    gpt:           {type: continuous, compare: yes}  # ALT, U/L
+    ggt:           {type: continuous, compare: yes}  # U/L
+    fib4:          {type: continuous, compare: yes}
+    "steatosis (saf)": {type: continuous, compare: yes}  # SAF steatosis component, 1–5
+  "MetS classification":
+    MetS:          {type: binary,     compare: yes}  # NCEP ATP III 2005; 28/33 at PRE
+    MetS_score:    {type: continuous, compare: yes}  # number of positive criteria (0–5)
+  Remission:
+    remission:     {type: categorical, compare: no}  # patient-level label derived from PRE→POST MetS
+
+# --- Alpha diversity ---------------------------------------------------------
+alpha_diversity:
+  exclude_pairs: ["SS-04"]   # S211 (PRE) has 8,069 reads — sequencing failure
+  rarefaction_depth: 75000   # chosen after inspecting rarefaction curves; retains 64/66 samples
+  seed: 42                   # rarefy_even_depth seed for reproducibility
+
 # --- Taxonomy barplots -------------------------------------------------------
 barplots:
   ranks:      ["Phylum", "Family", "Genus"]

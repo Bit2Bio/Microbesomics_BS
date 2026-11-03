@@ -11,6 +11,7 @@ rule all:
         # --- Preprocessing ---
         "data/processed/ps_raw.rds",
         "data/processed/clinical_all.csv",
+        "data/processed/bariatric_clinical_66.csv",
         "data/processed/ps_filt_5vs6.rds",
         # --- DESeq2 results ---
         "results/deseq2/deseq2_5vs6_results.xlsx",
@@ -21,6 +22,15 @@ rule all:
         "results/deseq2/volcano_mets_baseline.png",
         "results/deseq2/deseq2_remitters_vs_metsneg_results.xlsx",
         "results/deseq2/volcano_remitters_vs_metsneg.png",
+        # --- QC ---
+        "results/figures/qc/rarefaction_curves.png",
+        # --- Descriptive tables and figures ---
+        "results/figures/figure_lfc_clinical.png",
+        "results/figures/figure1_combined.png",
+        "results/figures/figure1d_mets_alluvial.png",
+        "results/tables/descriptive_baseline.csv",
+        "results/tables/descriptive_mets_stratified.csv",
+        "results/tables/descriptive_remission_stratified.csv",
         # --- Cross-comparison heatmap ---
         "results/deseq2/heatmap_intersection.png",
         # --- Taxonomy barplots ---
@@ -60,6 +70,33 @@ rule preprocess_clinical:
         "Rscript {SCRIPTS}/02_preprocess_clinical.R"
 
 
+rule preprocess_bariatric:
+    # Extracts the 66 samples (33 complete PRE/POST pairs) from clinical_all.csv.
+    # Adds remission label and produces the canonical bariatric clinical dataset.
+    input:
+        "data/processed/clinical_all.csv"
+    output:
+        "data/processed/bariatric_clinical_66.csv",
+        "data/processed/bariatric_clinical_66.xlsx"
+    shell:
+        "Rscript {SCRIPTS}/03b_preprocess_bariatric.R"
+
+
+rule preprocess_alpha_diversity:
+    # Builds the phyloseq object for alpha diversity:
+    #   - unfiltered ASVs (no prevalence/variance filter — would bias richness)
+    #   - excludes pairs listed in config alpha_diversity.exclude_pairs (SS-04: PRE outlier at 8,069 reads)
+    #   - rarefied to alpha_diversity.rarefaction_depth (75,000 reads)
+    input:
+        ps       = "data/processed/ps_raw.rds",
+        clinical = "data/processed/clinical_all.csv",
+        config   = "config/config.yaml"
+    output:
+        "data/processed/ps_rarefied_alpha.rds"
+    shell:
+        "Rscript {SCRIPTS}/preprocess_alpha_diversity.R"
+
+
 rule filter_5vs6:
     # Subsets phyloseq to the 33 complete bariatric surgery pairs and applies
     # ASV feature filtering (count + prevalence + variance).
@@ -70,6 +107,126 @@ rule filter_5vs6:
         "data/processed/ps_filt_5vs6.rds"
     shell:
         "Rscript {SCRIPTS}/03_filter_5vs6.R"
+
+
+# -----------------------------------------------------------------------------
+# Descriptive statistics
+# -----------------------------------------------------------------------------
+
+rule figure1a:
+    # Ridge plot PRE vs POST — anthropometrics, vitals, body composition, liver (Block A, 11 vars).
+    input:
+        data   = "data/processed/bariatric_clinical_66.csv",
+        config = "config/config.yaml"
+    output:
+        "results/figures/figure1a.png"
+    shell:
+        "python3 {SCRIPTS}/figure1a.py"
+
+
+rule figure1b:
+    # Ridge plot PRE vs POST — glycaemia, OGTT, lipids (Block B, 12 vars).
+    input:
+        data   = "data/processed/bariatric_clinical_66.csv",
+        config = "config/config.yaml"
+    output:
+        "results/figures/figure1b.png"
+    shell:
+        "python3 {SCRIPTS}/figure1b.py"
+
+
+rule figure1c:
+    # Raincloud plot PRE vs POST — weight (half-violin + jitter + boxplot).
+    input:
+        data   = "data/processed/bariatric_clinical_66.csv",
+        config = "config/config.yaml"
+    output:
+        "results/figures/figure1c.png"
+    shell:
+        "python3 {SCRIPTS}/figure1c.py"
+
+
+rule figure1d_mets_alluvial:
+    # Alluvial plot MetS PRE→POST: shows remission flow (MetS+→MetS−, n=22/28).
+    input:
+        data = "data/processed/bariatric_clinical_66.csv"
+    output:
+        "results/figures/figure1d_mets_alluvial.png"
+    shell:
+        "Rscript {SCRIPTS}/figure1d_mets_alluvial.R"
+
+
+rule figure1_combined:
+    # Assembles figure1a/b/c/d side by side into the final Figure 1.
+    input:
+        a = "results/figures/figure1a.png",
+        b = "results/figures/figure1b.png",
+        c = "results/figures/figure1c.png",
+        d = "results/figures/figure1d_mets_alluvial.png"
+    output:
+        "results/figures/figure1_combined.png"
+    shell:
+        "python3 {SCRIPTS}/figure1_assemble.py"
+
+
+rule rarefaction_curves:
+    # QC plot — rarefaction curves for all 66 bariatric samples (PRE/POST).
+    # Informs choice of rarefaction depth for alpha diversity analyses.
+    input:
+        ps = "data/processed/ps_filt_5vs6.rds"
+    output:
+        "results/figures/qc/rarefaction_curves.png"
+    shell:
+        "Rscript {SCRIPTS}/rarefaction_curves.R"
+
+
+rule figure_lfc_clinical:
+    # Ridge plot of log2(POST/PRE) for continuous clinical variables (mirrors Olsson Fig. 1a).
+    input:
+        data   = "data/processed/bariatric_clinical_66.csv",
+        config = "config/config.yaml"
+    output:
+        "results/figures/figure_lfc_clinical.png"
+    shell:
+        "python3 {SCRIPTS}/figure_lfc_clinical.py"
+
+
+rule descriptive_clinical:
+    # PRE-baseline descriptive table (n=33). Variable selection in config.yaml.
+    input:
+        data   = "data/processed/bariatric_clinical_66.csv",
+        config = "config/config.yaml"
+    output:
+        csv  = "results/tables/descriptive_baseline.csv",
+        html = "results/tables/descriptive_baseline.html"
+    shell:
+        "python3 {SCRIPTS}/descriptive_clinical.py"
+
+
+rule descriptive_remission_stratified:
+    # PRE-baseline descriptive table: remitters (n=22) vs non_remitters (n=6).
+    # Only MetS+ subjects. Mann-Whitney / Fisher exact, BH correction per family.
+    input:
+        data   = "data/processed/bariatric_clinical_66.csv",
+        config = "config/config.yaml"
+    output:
+        csv  = "results/tables/descriptive_remission_stratified.csv",
+        html = "results/tables/descriptive_remission_stratified.html"
+    shell:
+        "python3 {SCRIPTS}/descriptive_remission_stratified.py"
+
+
+rule descriptive_mets_stratified:
+    # PRE-baseline descriptive table stratified by MetS status (MetS+ n=28 vs MetS− n=5).
+    # Mann-Whitney U for continuous, Fisher's exact for binary, BH correction per family.
+    input:
+        data   = "data/processed/bariatric_clinical_66.csv",
+        config = "config/config.yaml"
+    output:
+        csv  = "results/tables/descriptive_mets_stratified.csv",
+        html = "results/tables/descriptive_mets_stratified.html"
+    shell:
+        "python3 {SCRIPTS}/descriptive_mets_stratified.py"
 
 
 # -----------------------------------------------------------------------------
@@ -176,6 +333,8 @@ rule taxonomy_barplots:
 
 rule html_report:
     input:
+        # QC
+        rarefaction       = "results/figures/qc/rarefaction_curves.png",
         # DESeq2 results
         xlsx_5vs6         = "results/deseq2/deseq2_5vs6_results.xlsx",
         xlsx_remission    = "results/deseq2/deseq2_remission_results.xlsx",
