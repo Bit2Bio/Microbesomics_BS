@@ -301,6 +301,36 @@ def load_deseq2_summary(xlsx_path: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# Beta diversity PERMANOVA table
+# --------------------------------------------------------------------------
+_perm_path = f"{BASE_DIR}/results/tables/beta_diversity_permanova.csv"
+
+def _build_permanova_html() -> str:
+    if not Path(_perm_path).exists():
+        return "<p class='missing'>beta_diversity_permanova.csv not found.</p>"
+    df = pd.read_csv(_perm_path)
+    def _p(val):
+        try:
+            v = float(val)
+            s = "<0.001" if v < 0.001 else f"{v:.3f}"
+            color = ";color:#c0392b;font-weight:600" if v < 0.05 else ""
+            return f'<span style="font-variant-numeric:tabular-nums{color}">{s}</span>'
+        except Exception:
+            return str(val)
+    cols = ["distance", "n_samples", "n_pairs", "F_statistic", "R2", "p_value"]
+    heads = ["Distance", "N samples", "N pairs", "F", "R²", "p-value"]
+    rows = []
+    for _, r in df.iterrows():
+        cells = "".join(
+            f"<td>{_p(r[c]) if c in ('p_value',) else round(r[c], 3) if isinstance(r[c], float) else r[c]}</td>"
+            for c in cols
+        )
+        rows.append(f"<tr>{cells}</tr>")
+    thead = "".join(f"<th>{h}</th>" for h in heads)
+    return f'<table><thead><tr>{thead}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+
+
+# --------------------------------------------------------------------------
 # Build HTML
 # --------------------------------------------------------------------------
 html = f"""<!DOCTYPE html>
@@ -426,6 +456,40 @@ html = f"""<!DOCTYPE html>
       </div>
 
     </div>
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- Figure 1 — Clinical characterization                     -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>Figure 1 — Clinical characterization PRE → POST</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      <strong>a</strong> Ridge plot — antropometria, segni vitali, composizione corporea, fegato (11 variabili, standardizzate in unità SD del PRE).
+      <strong>b</strong> Ridge plot — glicemia, OGTT, lipidi (12 variabili).
+      <strong>c</strong> Raincloud plot — peso corporeo PRE vs POST.
+      <strong>d</strong> Alluvial — flusso MetS PRE→POST (28 MetS+ → 6 MetS+ / 22 MetS−).
+      Stelle: p-adj Wilcoxon signed-rank con correzione BH (* &lt;0.05 · ** &lt;0.01 · *** &lt;0.001).
+    </p>
+    {img_tag(f"{BASE_DIR}/results/figures/figure1_combined.png",
+             style="width:100%;height:auto;border-radius:8px;")}
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- Figure 2 — Beta diversity                                -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>Figure 2 — Beta diversity PRE → POST</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Dati rarefatti a 75,000 reads (ps_rarefied_beta, 64 campioni — SS-04 escluso per outlier sequenziamento).
+      ASV filtrati con criteri prevalenza + varianza (707 ASVs).
+      <strong>a</strong> PCoA Bray-Curtis. <strong>b</strong> Distanza al centroide PRE, paired PRE→POST per paziente (Bray-Curtis).
+      <strong>c</strong> PCoA Unweighted UniFrac. <strong>d</strong> Distanza al centroide PRE, paired PRE→POST (Unweighted UniFrac).
+      PERMANOVA paired (strata = paziente, 999 permutazioni).
+    </p>
+    {img_tag(f"{BASE_DIR}/results/figures/figure2_combined.png",
+             style="width:100%;height:auto;border-radius:8px;")}
+    <h3 style="margin-top:18px;">PERMANOVA results</h3>
+    {_build_permanova_html()}
   </div>
 
   <!-- ======================================================= -->
