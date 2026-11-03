@@ -14,8 +14,8 @@ for (d in c(dirname(OUT_BC), dirname(OUT_CSV)))
 
 COL_PRE  <- "#4A0080"
 COL_POST <- "#007A87"
-FIG_W    <- 1.5
-FIG_H    <- 1.5
+FIG_W    <- 1.3
+FIG_H    <- 1.33
 
 ps   <- readRDS(PS_PATH)
 meta <- as(sample_data(ps), "data.frame")
@@ -106,44 +106,37 @@ run_pcoa <- function(d, dist_label, out_path) {
        PC1_pct = pct[1], PC2_pct = pct[2])
 }
 
-# ── Within-patient vs between-patient pairwise distances ──────────────────────
-# Within: d(PRE_i, POST_i) — same patient before/after surgery
-# Between: d(sample_i, sample_j) for patients i ≠ j — baseline inter-individual spread
+# ── PRE vs POST inter-individual pairwise distances ───────────────────────────
+# PRE:  all pairwise distances among PRE samples  (baseline spread)
+# POST: all pairwise distances among POST samples (post-surgery spread)
+# Tests whether inter-individual beta diversity changes after surgery.
 run_distances <- function(d, dist_label, out_path) {
   d_mat <- as.matrix(d)
 
   pre_samps  <- rownames(meta_ord)[meta_ord$timepoint == "PRE"]
   post_samps <- rownames(meta_ord)[meta_ord$timepoint == "POST"]
 
-  pairs <- merge(
-    data.frame(pz = meta_ord[pre_samps,  "pz"], pre  = pre_samps,  stringsAsFactors = FALSE),
-    data.frame(pz = meta_ord[post_samps, "pz"], post = post_samps, stringsAsFactors = FALSE),
-    by = "pz"
-  )
-  within_d <- mapply(function(pr, po) d_mat[pr, po], pairs$pre, pairs$post)
+  idx_pre  <- which(upper.tri(d_mat[pre_samps,  pre_samps]),  arr.ind = TRUE)
+  idx_post <- which(upper.tri(d_mat[post_samps, post_samps]), arr.ind = TRUE)
+  pre_d    <- d_mat[pre_samps,  pre_samps ][idx_pre]
+  post_d   <- d_mat[post_samps, post_samps][idx_post]
 
-  idx   <- which(upper.tri(d_mat), arr.ind = TRUE)
-  pz_i  <- meta_ord[rownames(d_mat)[idx[, 1]], "pz"]
-  pz_j  <- meta_ord[rownames(d_mat)[idx[, 2]], "pz"]
-  between_d <- d_mat[idx][pz_i != pz_j]
-
-  wt <- wilcox.test(within_d, between_d)
+  wt <- wilcox.test(pre_d, post_d)
   pv_label <- ifelse(wt$p.value < 0.001, "p<0.001",
               ifelse(wt$p.value < 0.01,  sprintf("p=%.3f", wt$p.value),
                                          sprintf("p=%.2f",  wt$p.value)))
 
   df <- data.frame(
-    dist  = c(within_d, between_d),
-    group = factor(c(rep("Within", length(within_d)),
-                     rep("Between", length(between_d))),
-                   levels = c("Within", "Between"))
+    dist      = c(pre_d, post_d),
+    timepoint = factor(c(rep("PRE", length(pre_d)), rep("POST", length(post_d))),
+                       levels = c("PRE", "POST"))
   )
 
   y_max   <- max(df$dist)
   y_annot <- y_max * 1.08
 
-  p <- ggplot(df, aes(x = group, y = dist)) +
-    geom_boxplot(aes(fill = group), width = 0.45, outlier.size = 0.3,
+  p <- ggplot(df, aes(x = timepoint, y = dist)) +
+    geom_boxplot(aes(fill = timepoint), width = 0.45, outlier.size = 0.3,
                  linewidth = 0.3, alpha = 0.75) +
     annotate("segment",
              x = 1, xend = 2, y = y_annot, yend = y_annot,
@@ -151,8 +144,7 @@ run_distances <- function(d, dist_label, out_path) {
     annotate("text",
              x = 1.5, y = y_annot * 1.02,
              label = pv_label, size = 1.5, colour = "#444", vjust = 0) +
-    scale_fill_manual(values = c("Within"  = "#888888",
-                                 "Between" = "#cccccc")) +
+    scale_fill_manual(values = c("PRE" = COL_PRE, "POST" = COL_POST)) +
     scale_y_continuous(expand = expansion(mult = c(0.05, 0.18))) +
     labs(x = NULL, y = dist_label) +
     theme_beta() +
