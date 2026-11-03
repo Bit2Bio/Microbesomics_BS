@@ -459,19 +459,82 @@ html = f"""<!DOCTYPE html>
   </div>
 
   <!-- ======================================================= -->
+  <!-- QC — Rarefaction curves                                  -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>QC — Rarefaction curves</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Metodi: rarefazione manuale con <code>rrarefy()</code> (vegan) su ps_filt_5vs6 (66 campioni, ASV filtrati).
+      Viola = PRE · Teal = POST. Linee tratteggiate: minimo (8,069 reads — outlier SS-04),
+      10° percentile (~123,923), 20° percentile (~144,977). La quasi totalità delle curve
+      raggiunge il plateau prima di 100,000 reads; soglia di rarefazione scelta = 75,000 reads.
+      SS-04 (PRE, 8,069 reads) escluso dalle analisi del microbioma.
+    </p>
+    {img_tag(f"{BASE_DIR}/results/figures/qc/rarefaction_curves.png",
+             style="width:80%;display:block;margin:0 auto;")}
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- Clinical data + descriptive tables                       -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>Dati clinici — caratteristiche baseline</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Metodi: variabili continue mediana [IQR], Wilcoxon signed-rank paired con correzione BH.
+      Binarie: n (%), McNemar. Criteri MetS: NCEP ATP III (revisione AHA/NHLBI 2005).
+    </p>
+    <div class="table-scroll">{desc_table_html}</div>
+    {xlsx_download_button(clinical_df, "clinical_all.xlsx", "⬇ Scarica clinical_all.xlsx")}
+  </div>
+
+  <div class="card">
+    <h2>MetS+ vs MetS− al baseline (n=28 vs n=5)</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Metodi: Mann-Whitney U per continui, Fisher exact per binari, correzione BH per famiglia.
+      <strong>Nota:</strong> MetS− n=5 — sottopotenziato, p-value puramente esplorativi.
+    </p>
+    <div class="table-scroll">{mets_strat_html}</div>
+  </div>
+
+  <div class="card">
+    <h2>Remitters vs Non-remitters al baseline (n=22 vs n=6)</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Solo MetS+ (n=28). Metodi: Mann-Whitney U, Fisher exact, correzione BH per famiglia.
+      <strong>Nota:</strong> Non-remitters n=6 — risultati esplorativi.
+    </p>
+    <div class="table-scroll">{rem_strat_html}</div>
+  </div>
+
+  <!-- ======================================================= -->
   <!-- Figure 1 — Clinical characterization                     -->
   <!-- ======================================================= -->
   <div class="card">
-    <h2>Figure 1 — Clinical characterization PRE → POST</h2>
+    <h2>Figure 1 — Caratterizzazione clinica PRE → POST</h2>
     <p class="meta" style="margin-bottom:14px;">
-      <strong>a</strong> Ridge plot — antropometria, segni vitali, composizione corporea, fegato (11 variabili, standardizzate in unità SD del PRE).
+      Metodi: Wilcoxon signed-rank paired, correzione BH su tutte le variabili continue congiuntamente.
+      <strong>a</strong> Ridge plot — antropometria, segni vitali, composizione corporea, fegato (11 variabili, unità SD del PRE).
       <strong>b</strong> Ridge plot — glicemia, OGTT, lipidi (12 variabili).
-      <strong>c</strong> Raincloud plot — peso corporeo PRE vs POST.
-      <strong>d</strong> Alluvial — flusso MetS PRE→POST (28 MetS+ → 6 MetS+ / 22 MetS−).
-      Stelle: p-adj Wilcoxon signed-rank con correzione BH (* &lt;0.05 · ** &lt;0.01 · *** &lt;0.001).
+      <strong>c</strong> Raincloud — peso (kg) PRE vs POST.
+      <strong>d</strong> Alluvial — flusso MetS PRE→POST: 22/28 MetS+ raggiungono la remissione.
+      Risultati: la chirurgia bariatrica induce miglioramenti significativi (p-adj &lt;0.05) in quasi tutte le variabili metaboliche e antropometriche.
     </p>
-    {img_tag(f"{BASE_DIR}/results/figures/figure1_combined.png",
-             style="width:100%;height:auto;border-radius:8px;")}
+    {img_tag(f"{BASE_DIR}/results/figures/figure1_combined.png")}
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- Alpha diversity                                          -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>Alpha diversity PRE → POST</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Metodi: phyloseq non filtrato (tutti gli ASVs), SS-04 escluso, rarefazione a 75,000 reads
+      (n=32 coppie paired). Wilcoxon signed-rank paired. Metriche: Observed ASVs e Shannon index.
+      Risultati: nessuna differenza significativa tra PRE e POST
+      (Observed: p=0.78 · Shannon: p=0.25). La richness e la diversità alpha
+      non cambiano in modo rilevante dopo chirurgia bariatrica in questa coorte.
+    </p>
+    {img_tag(f"{BASE_DIR}/results/figures/figure_alpha_diversity.png",
+             style="width:40%;display:block;margin:0 auto;")}
   </div>
 
   <!-- ======================================================= -->
@@ -480,127 +543,16 @@ html = f"""<!DOCTYPE html>
   <div class="card">
     <h2>Figure 2 — Beta diversity PRE → POST</h2>
     <p class="meta" style="margin-bottom:14px;">
-      Dati rarefatti a 75,000 reads (ps_rarefied_beta, 64 campioni — SS-04 escluso per outlier sequenziamento).
-      ASV filtrati con criteri prevalenza + varianza (707 ASVs).
-      <strong>a</strong> PCoA Bray-Curtis. <strong>b</strong> Distanza al centroide PRE, paired PRE→POST per paziente (Bray-Curtis).
-      <strong>c</strong> PCoA Unweighted UniFrac. <strong>d</strong> Distanza al centroide PRE, paired PRE→POST (Unweighted UniFrac).
-      PERMANOVA paired (strata = paziente, 999 permutazioni).
+      Metodi: ps_filt_5vs6 (707 ASVs filtrati), SS-04 escluso, rarefazione a 75,000 reads (n=32 coppie, 64 campioni).
+      PERMANOVA paired adonis2 con strata=paziente, 999 permutazioni.
+      Distanza al centroide PRE: Wilcoxon signed-rank paired per paziente.
+      <strong>a</strong> PCoA Bray-Curtis (R²=0.061, p=0.001).
+      <strong>b</strong> Distanza al centroide PRE per paziente — Bray-Curtis (p&lt;0.001): il microbioma si allontana significativamente dalla composizione baseline.
+      <strong>c</strong> PCoA Unweighted UniFrac (R²=0.047, p=0.001).
+      <strong>d</strong> Distanza al centroide PRE per paziente — Unweighted UniFrac (p&lt;0.001).
+      Risultati: la struttura della comunità microbica cambia significativamente dopo chirurgia bariatrica su entrambe le metriche.
     </p>
-    {img_tag(f"{BASE_DIR}/results/figures/figure2_combined.png",
-             style="width:100%;height:auto;border-radius:8px;")}
-    <h3 style="margin-top:18px;">PERMANOVA results</h3>
-    {_build_permanova_html()}
-  </div>
-
-  <!-- ======================================================= -->
-  <!-- QC — Rarefaction curves                                  -->
-  <!-- ======================================================= -->
-  <div class="card">
-    <h2>QC — Rarefaction curves (sequencing depth)</h2>
-    <p class="meta" style="margin-bottom:14px;">
-      Curva di rarefazione per ognuno dei 66 campioni (33 coppie PRE/POST).
-      Viola = PRE · Teal = POST.
-      Le linee tratteggiate indicano tre soglie candidate per la rarefazione:
-      min (8,069 reads — outlier), 10° percentile (~123,923), 20° percentile (~144,977).
-      La maggior parte delle curve raggiunge il plateau intorno a 100,000–150,000 reads.
-      Il campione a 8,069 reads è un outlier marcato che andrà escluso o gestito separatamente.
-    </p>
-    {img_tag(f"{BASE_DIR}/results/figures/qc/rarefaction_curves.png",
-             style="width:80%;display:block;margin:0 auto;")}
-  </div>
-
-  <!-- ======================================================= -->
-  <!-- Clinical data download                                   -->
-  <!-- ======================================================= -->
-  <div class="card">
-    <h2>Clinical Data — preprocessed</h2>
-    <p style="font-size:0.9rem;line-height:1.7;margin-bottom:12px;">
-      Il file scaricabile è l'output di <code>02_preprocess_clinical.R</code>, non il dato grezzo.
-      Il preprocessing esegue i seguenti passaggi:
-    </p>
-    <ol style="font-size:0.88rem;line-height:1.8;color:var(--text);padding-left:20px;margin-bottom:14px;">
-      <li><strong>Lettura di 3 sheet</strong> dall'Excel IGA originale: <em>group1vs2</em> (intervento dietetico), <em>group3vs4</em> (coorte Mingrone), <em>group5vs6</em> (chirurgia bariatrica). Il sheet <em>clinical data merged - BASAL</em> è escluso perché contiene duplicati del baseline.</li>
-      <li><strong>Normalizzazione dei nomi colonna</strong> — lowercase e unificazione di sinonimi tra sheet (es. <code>DIABETE/IFG</code> → <code>diabetes</code>, <code>OSAS</code> → <code>saos</code>). Colonne presenti in alcuni sheet ma non altri sono riempite con NA.</li>
-      <li><strong>Aggiunta di <code>sample_id</code></strong> — chiave primaria <code>S1..S247</code> che collega ogni riga clinica al corrispondente campione nel phyloseq object.</li>
-      <li><strong>Flag <code>TG_pharmacotherapy</code></strong> — 3 campioni su farmaci TG-specifici (fenofibrato / omega-3) a specifici timepoint (S85, S200, S215) sono marcati; il loro TG misurato potrebbe essere artificialmente ridotto dal trattamento.</li>
-      <li><strong>Calcolo dei 5 criteri MetS</strong> (NCEP ATP III, revisione AHA/NHLBI 2005):
-        <ul style="margin-top:4px;">
-          <li>Obesità addominale: waist ≥ 102 cm (M) / ≥ 88 cm (F)</li>
-          <li>Iperglicemia: glucose 0' ≥ 100 mg/dL OR diabetes == 1</li>
-          <li>Ipertensione: SBP ≥ 130 OR DBP ≥ 85 OR hypertension == 1</li>
-          <li>HDL basso: HDL &lt; 40 mg/dL (M) / &lt; 50 mg/dL (F)</li>
-          <li>Ipertrigliceridemia: TG ≥ 150 mg/dL OR TG_pharmacotherapy == 1</li>
-        </ul>
-      </li>
-      <li><strong>Classificazione MetS composita</strong> — logica a tre vie: MetS = 1 se ≥ 3 criteri positivi, MetS = 0 se impossibile raggiungere 3 anche con dati mancanti, NA se i dati mancanti sono determinanti.</li>
-    </ol>
-    <p class="meta">Dataset finale: <strong>{len(clinical_df)} campioni</strong> × <strong>{len(clinical_df.columns)} variabili</strong>. Include tutti i gruppi (1–6) con variabili demografiche, antropometriche, metaboliche, laboratoristiche e i criteri MetS calcolati.</p>
-    {xlsx_download_button(clinical_df, "clinical_all.xlsx", "⬇ Scarica clinical_all.xlsx")}
-  </div>
-
-  <!-- ======================================================= -->
-  <!-- Descriptive baseline table                               -->
-  <!-- ======================================================= -->
-  <div class="card">
-    <h2>Clinical characteristics — PRE vs POST bariatric surgery (n=33 pairs)</h2>
-    <p class="meta" style="margin-bottom:14px;">
-      Continuous: median [IQR]; paired Wilcoxon signed-rank test.
-      Binary: n (%); McNemar test.
-      Variables with <code>compare: no</code> (age, sex, smoking, cvd, remission) riportano solo il valore PRE — il confronto non è interpretabile per queste variabili.
-      Coverage in arancione quando &lt; 33/33. p-value significativi (p &lt; 0.05) in rosso.
-      Selezione variabili: <code>config/config.yaml → clinical_descriptive</code>.
-    </p>
-    <div class="table-scroll">
-      {desc_table_html}
-    </div>
-  </div>
-
-  <!-- ======================================================= -->
-  <!-- MetS-stratified descriptive table                        -->
-  <!-- ======================================================= -->
-  <div class="card">
-    <h2>MetS+ vs MetS− at PRE (n=28 vs n=5)</h2>
-    <p class="meta" style="margin-bottom:14px;">
-      Confronto trasversale al baseline (PRE) tra soggetti MetS+ e MetS−.
-      Continui: mediana [IQR], Mann-Whitney U. Binari: n (%), Fisher exact.
-      Correzione BH separata per famiglia di test (Mann-Whitney / Fisher).
-      <strong>Nota:</strong> MetS− n=5 — i test sono gravemente sottopotenziati;
-      i p-value sono riportati per completezza ma non sono interpretabili come evidenza.
-    </p>
-    <div class="table-scroll">
-      {mets_strat_html}
-    </div>
-  </div>
-
-  <!-- ======================================================= -->
-  <!-- Remission-stratified descriptive table                   -->
-  <!-- ======================================================= -->
-  <div class="card">
-    <h2>Remitters vs Non-remitters at PRE (n=22 vs n=6)</h2>
-    <p class="meta" style="margin-bottom:14px;">
-      Solo soggetti MetS+ (n=28). MetS− esclusi — la remissione non è definita per loro.
-      Continui: mediana [IQR], Mann-Whitney U. Binari: n (%), Fisher exact.
-      Correzione BH separata per famiglia di test.
-      <strong>Nota:</strong> Non-remitters n=6 — i test sono sottopotenziati;
-      le tendenze raw sono riportate come segnale esplorativo.
-    </p>
-    <div class="table-scroll">
-      {rem_strat_html}
-    </div>
-  </div>
-
-  <!-- ======================================================= -->
-  <!-- Log2FC clinical figure                                   -->
-  <!-- ======================================================= -->
-  <div class="card">
-    <h2>Clinical changes PRE → POST — log₂(fold change)</h2>
-    <p class="meta" style="margin-bottom:14px;">
-      Ridge plot delle distribuzioni di log₂(POST/PRE) per ogni variabile clinica continua (n=33 coppie paired).
-      La linea tratteggiata indica la mediana. Stelle: p-adj Wilcoxon signed-rank con correzione BH
-      (* &lt;0.05 · ** &lt;0.01 · *** &lt;0.001). DBP non significativa dopo correzione.
-    </p>
-    {img_tag(f"{BASE_DIR}/results/figures/figure_lfc_clinical.png",
-             style="width:55%;display:block;margin:0 auto;")}
+    {img_tag(f"{BASE_DIR}/results/figures/figure2_combined.png")}
   </div>
 
   <!-- ======================================================= -->

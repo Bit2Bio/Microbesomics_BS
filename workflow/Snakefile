@@ -28,9 +28,9 @@ rule all:
         "results/figures/figure_lfc_clinical.png",
         "results/figures/figure1_combined.png",
         "results/figures/figure1d_mets_alluvial.png",
-        # --- Beta diversity (Figure 2) ---
+        # --- Alpha and beta diversity ---
+        "results/figures/figure_alpha_diversity.png",
         "results/figures/figure2_combined.png",
-        "results/tables/beta_diversity_permanova.csv",
         "results/tables/descriptive_baseline.csv",
         "results/tables/descriptive_mets_stratified.csv",
         "results/tables/descriptive_remission_stratified.csv",
@@ -138,6 +138,17 @@ rule preprocess_alpha_diversity:
         "data/processed/ps_rarefied_alpha.rds"
     shell:
         "Rscript {SCRIPTS}/preprocess_alpha_diversity.R"
+
+
+rule figure_alpha_diversity:
+    # Paired PRE→POST plots for Shannon index and Observed ASVs (n=32 pairs).
+    # SS-04 excluded; rarefied at 75,000 reads on unfiltered ASVs.
+    input:
+        "data/processed/ps_rarefied_alpha.rds"
+    output:
+        "results/figures/figure_alpha_diversity.png"
+    shell:
+        "Rscript {SCRIPTS}/figure_alpha_diversity.R"
 
 
 rule filter_5vs6:
