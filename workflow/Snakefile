@@ -28,6 +28,11 @@ rule all:
         "results/figures/figure_lfc_clinical.png",
         "results/figures/figure1_combined.png",
         "results/figures/figure1d_mets_alluvial.png",
+        "results/figures/figure2a_pcoa_braycurtis.png",
+        "results/figures/figure2b_bc_distances.png",
+        "results/figures/figure2c_pcoa_unifrac.png",
+        "results/figures/figure2d_uuf_distances.png",
+        "results/tables/beta_diversity_permanova.csv",
         "results/tables/descriptive_baseline.csv",
         "results/tables/descriptive_mets_stratified.csv",
         "results/tables/descriptive_remission_stratified.csv",
@@ -80,6 +85,33 @@ rule preprocess_bariatric:
         "data/processed/bariatric_clinical_66.xlsx"
     shell:
         "Rscript {SCRIPTS}/03b_preprocess_bariatric.R"
+
+
+rule figure2a_pcoa_bray:
+    # PCoA (Bray-Curtis, Unweighted UniFrac) PRE vs POST + paired PERMANOVA.
+    # Also generates within-patient vs between-patient distance boxplots for each metric.
+    input:
+        ps = "data/processed/ps_rarefied_beta.rds"
+    output:
+        fig_bc    = "results/figures/figure2a_pcoa_braycurtis.png",
+        fig_bc_d  = "results/figures/figure2b_bc_distances.png",
+        fig_uuf   = "results/figures/figure2c_pcoa_unifrac.png",
+        fig_uuf_d = "results/figures/figure2d_uuf_distances.png",
+        csv       = "results/tables/beta_diversity_permanova.csv"
+    shell:
+        "Rscript {SCRIPTS}/figure2a_pcoa_bray.R"
+
+
+rule preprocess_beta_diversity:
+    # Rarefied phyloseq for beta diversity: filtered ASVs (ps_filt_5vs6 criteria),
+    # SS-04 pair excluded (S211 PRE: 8,069 reads), rarefied at 75,000 reads.
+    input:
+        ps     = "data/processed/ps_filt_5vs6.rds",
+        config = "config/config.yaml"
+    output:
+        "data/processed/ps_rarefied_beta.rds"
+    shell:
+        "Rscript {SCRIPTS}/preprocess_beta_diversity.R"
 
 
 rule preprocess_alpha_diversity:
@@ -157,12 +189,17 @@ rule figure1d_mets_alluvial:
 
 
 rule figure1_combined:
-    # Assembles figure1a/b/c/d side by side into the final Figure 1.
+    # Row 1 (a–d): ridge plots + alluvial.
+    # Row 2 (e–g): PCoA Bray-Curtis, Weighted UniFrac, Unweighted UniFrac.
     input:
-        a = "results/figures/figure1a.png",
-        b = "results/figures/figure1b.png",
-        c = "results/figures/figure1c.png",
-        d = "results/figures/figure1d_mets_alluvial.png"
+        a   = "results/figures/figure1a.png",
+        b   = "results/figures/figure1b.png",
+        c   = "results/figures/figure1c.png",
+        d   = "results/figures/figure1d_mets_alluvial.png",
+        e   = "results/figures/figure2a_pcoa_braycurtis.png",
+        f   = "results/figures/figure2b_bc_distances.png",
+        g   = "results/figures/figure2c_pcoa_unifrac.png",
+        h   = "results/figures/figure2d_uuf_distances.png"
     output:
         "results/figures/figure1_combined.png"
     shell:
@@ -335,6 +372,10 @@ rule html_report:
     input:
         # QC
         rarefaction       = "results/figures/qc/rarefaction_curves.png",
+        # Combined figure (all panels including PCoA row)
+        fig_combined      = "results/figures/figure1_combined.png",
+        # Beta diversity CSV
+        beta_csv          = "results/tables/beta_diversity_permanova.csv",
         # DESeq2 results
         xlsx_5vs6         = "results/deseq2/deseq2_5vs6_results.xlsx",
         xlsx_remission    = "results/deseq2/deseq2_remission_results.xlsx",
