@@ -14,7 +14,7 @@ for (d in c(dirname(OUT_BC), dirname(OUT_CSV)))
 
 COL_PRE  <- "#4A0080"
 COL_POST <- "#007A87"
-FIG_W    <- 1.3
+FIG_W    <- 1.2
 FIG_H    <- 1.33
 
 ps   <- readRDS(PS_PATH)
