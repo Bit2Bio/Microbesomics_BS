@@ -396,6 +396,11 @@ html = f"""<!DOCTYPE html>
   .two-col > div {{ flex: 1; min-width: 0; }}
   ul.notes {{ padding-left: 18px; margin: 0; }}
   ul.notes li {{ font-size: 0.84rem; color: var(--muted); margin-bottom: 6px; line-height: 1.5; }}
+  .fig-caption {{
+    font-size: 0.83rem; color: var(--text); line-height: 1.65;
+    margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px;
+  }}
+  .fig-caption b {{ font-weight: 700; }}
 </style>
 </head>
 <body>
@@ -506,19 +511,40 @@ html = f"""<!DOCTYPE html>
   </div>
 
   <!-- ======================================================= -->
-  <!-- Figure 1 — Clinical characterization                     -->
+  <!-- Figure 1                                                 -->
   <!-- ======================================================= -->
   <div class="card">
-    <h2>Figure 1 — Caratterizzazione clinica PRE → POST</h2>
-    <p class="meta" style="margin-bottom:14px;">
-      Metodi: Wilcoxon signed-rank paired, correzione BH su tutte le variabili continue congiuntamente.
-      <strong>a</strong> Ridge plot — antropometria, segni vitali, composizione corporea, fegato (11 variabili, unità SD del PRE).
-      <strong>b</strong> Ridge plot — glicemia, OGTT, lipidi (12 variabili).
-      <strong>c</strong> Raincloud — peso (kg) PRE vs POST.
-      <strong>d</strong> Alluvial — flusso MetS PRE→POST: 22/28 MetS+ raggiungono la remissione.
-      Risultati: la chirurgia bariatrica induce miglioramenti significativi (p-adj &lt;0.05) in quasi tutte le variabili metaboliche e antropometriche.
-    </p>
+    <h2>Figure 1</h2>
     {img_tag(f"{BASE_DIR}/results/figures/figure1_combined.png")}
+    <p class="fig-caption">
+      <b>Figure 1. Clinical and microbial characterization of patients before and after bariatric surgery.</b>
+      <b>(a)</b> Ridge plots showing the distribution of PRE→POST changes (expressed in units of PRE standard deviation)
+      for anthropometric, vital-sign, body-composition, and hepatic variables (n&nbsp;=&nbsp;11 variables; n&nbsp;=&nbsp;33 pairs).
+      <b>(b)</b> Ridge plots for glycaemic (including OGTT-derived indices), and lipid variables (n&nbsp;=&nbsp;12 variables).
+      In panels <b>a</b> and <b>b</b>, statistical significance was assessed by paired Wilcoxon signed-rank test with
+      Benjamini–Hochberg (BH) correction across all continuous variables jointly; asterisks denote
+      FDR-adjusted significance: *p&nbsp;&lt;&nbsp;0.05, **p&nbsp;&lt;&nbsp;0.01, ***p&nbsp;&lt;&nbsp;0.001.
+      <b>(c)</b> Raincloud plot (half-violin + jittered individual points + box-and-whisker) of body weight (kg)
+      at PRE and POST; grey lines connect paired observations (n&nbsp;=&nbsp;33). p-value from paired Wilcoxon signed-rank test.
+      <b>(d)</b> Alluvial diagram depicting the flow of metabolic syndrome (MetS) status from PRE to POST.
+      MetS was defined according to NCEP ATP III criteria (AHA/NHLBI 2005 revision; ≥&nbsp;3 of 5 criteria met).
+      Of 28 MetS-positive patients at baseline, 22 (79%) achieved MetS remission after surgery.
+      <b>(e, g)</b> Principal coordinates analysis (PCoA) of Bray–Curtis dissimilarity (panel&nbsp;<b>e</b>) and
+      unweighted UniFrac distance (panel&nbsp;<b>g</b>) computed on rarefied ASV counts (75,000 reads; SS-04 excluded;
+      n&nbsp;=&nbsp;32 pairs, 64 samples). Each point represents one sample; PRE and POST samples from the same patient
+      are connected by a line. PERMANOVA significance (adonis2 with patient as stratum, 999 permutations):
+      Bray–Curtis R²&nbsp;=&nbsp;0.061, p&nbsp;=&nbsp;0.001; unweighted UniFrac R²&nbsp;=&nbsp;0.047, p&nbsp;=&nbsp;0.001.
+      <b>(f, h)</b> Per-patient distance from the PRE centroid for Bray–Curtis (panel&nbsp;<b>f</b>) and
+      unweighted UniFrac (panel&nbsp;<b>h</b>); each line represents one patient, illustrating the trajectory
+      of microbial community shift after surgery. p-values from paired Wilcoxon signed-rank test.
+      <b>(i)</b> Stacked barplot of relative Phylum-level abundance (top 10 phyla; remaining taxa collapsed into "Other")
+      for each sample, faceted by timepoint. Samples are ordered by decreasing <i>Firmicutes</i> relative abundance
+      at PRE; the same patient order is applied to POST to facilitate visual comparison.
+      <b>(j)</b> Diverging barplot of centred log-ratio (CLR)-transformed PRE→POST change per phylum.
+      Phyla with structural zeros were handled with a pseudocount equal to half the smallest observed non-zero count.
+      Statistics: paired t-test with BH correction; bars are coloured by direction of change;
+      labels indicate phyla with FDR&nbsp;&lt;&nbsp;0.05.
+    </p>
   </div>
 
   <!-- ======================================================= -->
