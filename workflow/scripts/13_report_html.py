@@ -515,8 +515,11 @@ html = f"""<!DOCTYPE html>
   <!-- ======================================================= -->
   <div class="card">
     <h2>Figure 1</h2>
+    <div style="display:flex;gap:24px;align-items:flex-start;">
+    <div style="flex:2;min-width:0;">
     {img_tag(f"{BASE_DIR}/results/figures/figure1_combined.png")}
-    <p class="fig-caption">
+    </div>
+    <div style="flex:1;min-width:220px;" class="fig-caption">
       <b>Figure 1. Clinical and microbial characterization of patients before and after bariatric surgery.</b>
       <b>(a)</b> Ridge plots showing the distribution of PRE→POST changes (expressed in units of PRE standard deviation)
       for anthropometric, vital-sign, body-composition, and hepatic variables (n&nbsp;=&nbsp;11 variables; n&nbsp;=&nbsp;33 pairs).
@@ -544,7 +547,8 @@ html = f"""<!DOCTYPE html>
       Phyla with structural zeros were handled with a pseudocount equal to half the smallest observed non-zero count.
       Statistics: paired t-test with BH correction; bars are coloured by direction of change;
       labels indicate phyla with FDR&nbsp;&lt;&nbsp;0.05.
-    </p>
+    </div>
+    </div>
   </div>
 
   <!-- ======================================================= -->
