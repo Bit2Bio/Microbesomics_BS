@@ -31,7 +31,6 @@ rule all:
         "results/figures/figure1d_mets_alluvial.png",
         # --- Alpha and beta diversity ---
         "results/figures/figure_alpha_diversity.png",
-        "results/figures/figure2_combined.png",
         "results/tables/descriptive_baseline.csv",
         "results/tables/descriptive_mets_stratified.csv",
         "results/tables/descriptive_remission_stratified.csv",
@@ -100,18 +99,6 @@ rule figure2a_pcoa_bray:
     shell:
         "Rscript {SCRIPTS}/07e_figure1eh_pcoa_beta.R"
 
-
-rule figure2_combined:
-    # Assembles the four beta diversity panels into Figure 2.
-    input:
-        a = "results/figures/figure2a_pcoa_braycurtis.png",
-        b = "results/figures/figure2b_bc_distances.png",
-        c = "results/figures/figure2c_pcoa_unifrac.png",
-        d = "results/figures/figure2d_uuf_distances.png"
-    output:
-        "results/figures/figure2_combined.png"
-    shell:
-        "{PYTHON} {SCRIPTS}/08b_figure2_assemble.py"
 
 
 rule preprocess_beta_diversity:
@@ -252,6 +239,10 @@ rule figure1_combined:
         b = "results/figures/figure1b.png",
         c = "results/figures/figure1c.png",
         d = "results/figures/figure1d_mets_alluvial.png",
+        e = "results/figures/figure2a_pcoa_braycurtis.png",
+        f = "results/figures/figure2b_bc_distances.png",
+        g = "results/figures/figure2c_pcoa_unifrac.png",
+        h = "results/figures/figure2d_uuf_distances.png",
         i = "results/figures/figure1i_composition.png",
         j = "results/figures/figure1j_phylum_clr.png"
     output:

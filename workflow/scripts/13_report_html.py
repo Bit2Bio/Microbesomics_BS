@@ -538,24 +538,6 @@ html = f"""<!DOCTYPE html>
   </div>
 
   <!-- ======================================================= -->
-  <!-- Figure 2 — Beta diversity                                -->
-  <!-- ======================================================= -->
-  <div class="card">
-    <h2>Figure 2 — Beta diversity PRE → POST</h2>
-    <p class="meta" style="margin-bottom:14px;">
-      Metodi: ps_filt_5vs6 (707 ASVs filtrati), SS-04 escluso, rarefazione a 75,000 reads (n=32 coppie, 64 campioni).
-      PERMANOVA paired adonis2 con strata=paziente, 999 permutazioni.
-      Distanza al centroide PRE: Wilcoxon signed-rank paired per paziente.
-      <strong>a</strong> PCoA Bray-Curtis (R²=0.061, p=0.001).
-      <strong>b</strong> Distanza al centroide PRE per paziente — Bray-Curtis (p&lt;0.001): il microbioma si allontana significativamente dalla composizione baseline.
-      <strong>c</strong> PCoA Unweighted UniFrac (R²=0.047, p=0.001).
-      <strong>d</strong> Distanza al centroide PRE per paziente — Unweighted UniFrac (p&lt;0.001).
-      Risultati: la struttura della comunità microbica cambia significativamente dopo chirurgia bariatrica su entrambe le metriche.
-    </p>
-    {img_tag(f"{BASE_DIR}/results/figures/figure2_combined.png")}
-  </div>
-
-  <!-- ======================================================= -->
   <!-- 2. MetS Classification                                   -->
   <!-- ======================================================= -->
   <div class="card">
