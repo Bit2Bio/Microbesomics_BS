@@ -2,6 +2,7 @@
 Assembles all panels into a single combined figure:
   Row 1 (a–d): ridge plots (clinical) + MetS alluvial
   Row 2 (e–h): PCoA Bray-Curtis, BC distances, PCoA Unweighted UniFrac, UUF distances
+  Row 3 (i–j): Phylum composition stacked barplot, CLR diverging barplot
 """
 
 import os
@@ -25,8 +26,13 @@ ROW2 = [
     os.path.join(BASE_DIR, "results/figures/figure2c_pcoa_unifrac.png"),
     os.path.join(BASE_DIR, "results/figures/figure2d_uuf_distances.png"),
 ]
+ROW3 = [
+    os.path.join(BASE_DIR, "results/figures/figure1i_composition.png"),
+    os.path.join(BASE_DIR, "results/figures/figure1j_phylum_clr.png"),
+]
 LABELS_R1 = ["a", "b", "c", "d"]
 LABELS_R2 = ["e", "f", "g", "h"]
+LABELS_R3 = ["i", "j"]
 OUT = os.path.join(BASE_DIR, "results/figures/figure1_combined.png")
 DPI = 300
 
@@ -79,19 +85,28 @@ def add_label(img, label):
     return buf[:, :, [1, 2, 3, 0]].astype(np.float32) / 255.0
 
 
-imgs_r1 = [add_label(read_rgba(p), lbl) for p, lbl in zip(ROW1, LABELS_R1)]
-imgs_r2 = [add_label(read_rgba(p), lbl) for p, lbl in zip(ROW2, LABELS_R2)]
+# Pad to row height first, then add label — so the letter sits at the
+# absolute top-left of the final padded image, aligned across all panels.
+imgs_r1 = [read_rgba(p) for p in ROW1]
+imgs_r2 = [read_rgba(p) for p in ROW2]
+imgs_r3 = [read_rgba(p) for p in ROW3]
 
 max_h_r1 = max(img.shape[0] for img in imgs_r1)
 max_h_r2 = max(img.shape[0] for img in imgs_r2)
-row1 = np.concatenate([pad_height(img, max_h_r1) for img in imgs_r1], axis=1)
-row2 = np.concatenate([pad_height(img, max_h_r2) for img in imgs_r2], axis=1)
+max_h_r3 = max(img.shape[0] for img in imgs_r3)
+row1 = np.concatenate([add_label(pad_height(img, max_h_r1), lbl)
+                        for img, lbl in zip(imgs_r1, LABELS_R1)], axis=1)
+row2 = np.concatenate([add_label(pad_height(img, max_h_r2), lbl)
+                        for img, lbl in zip(imgs_r2, LABELS_R2)], axis=1)
+row3 = np.concatenate([add_label(pad_height(img, max_h_r3), lbl)
+                        for img, lbl in zip(imgs_r3, LABELS_R3)], axis=1)
 
-target_w = max(row1.shape[1], row2.shape[1])
+target_w = max(row1.shape[1], row2.shape[1], row3.shape[1])
 row1 = pad_width(row1, target_w)
 row2 = pad_width(row2, target_w)
+row3 = pad_width(row3, target_w)
 
-combined = np.vstack([row1, row2])
+combined = np.vstack([row1, row2, row3])
 
 fig, ax = plt.subplots(figsize=(combined.shape[1]/DPI, combined.shape[0]/DPI), dpi=DPI)
 fig.patch.set_facecolor("white")

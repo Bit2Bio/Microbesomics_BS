@@ -1,5 +1,5 @@
 # =============================================================================
-# 03b_preprocess_bariatric.R
+# 03_preprocess_bariatric.R
 #
 # Extracts the 66 samples (33 complete PRE/POST pairs) from clinical_all.csv
 # and produces a clean bariatric-specific clinical file with all available

@@ -1,14 +1,11 @@
 # =============================================================================
-# 06_deseq2_remission.R
+# 07_deseq2_mets_baseline.R
 #
-# Differential abundance analysis (DESeq2): MetS remitters vs non-remitters
-# at baseline (PRE, group 5) among the 33 complete bariatric surgery pairs.
+# Differential abundance analysis (DESeq2): MetS+ vs MetS- at baseline
+# (PRE, group 5) among the 33 complete bariatric surgery pairs.
 #
-# Remission is defined at the patient level using MetS status from
-# clinical_all.csv:
-#   remitter     : MetS == 1 at PRE (group 5) AND MetS == 0 at POST (group 6)
-#   non-remitter : MetS == 1 at PRE (group 5) AND MetS == 1 at POST (group 6)
-#   excluded     : MetS == 0 at PRE (group 5) — 5 patients already MetS-negative
+#   MetS+ : 28 patients (MetS == 1 at PRE)
+#   MetS- :  5 patients (MetS == 0 at PRE)
 #
 # Input:
 #   data/processed/ps_filt_5vs6.rds  — 66 samples (33 pairs), 707 ASVs
@@ -16,11 +13,11 @@
 #   data/processed/clinical_all.csv  — MetS status for all 247 samples
 #
 # Output:
-#   results/deseq2/deseq2_remission_results.xlsx — DESeq2 results + taxonomy
-#   results/deseq2/volcano_remission.png          — volcano plot
+#   results/deseq2/deseq2_mets_baseline_results.xlsx — DESeq2 results + taxonomy
+#   results/deseq2/volcano_mets_baseline.png          — volcano plot
 #
-# Design: ~ remission (simple two-group comparison at the same timepoint)
-#   Positive log2FC = enriched in non-remitters.
+# Design: ~ MetS (simple two-group comparison at the same timepoint)
+#   Positive log2FC = enriched in MetS+ relative to MetS-.
 # =============================================================================
 
 BASE_DIR <- "/home/lorenzo/Microbesomics"
@@ -35,68 +32,40 @@ dir.create(file.path(BASE_DIR, "results/deseq2"), recursive = TRUE, showWarnings
 
 # --- Load data ---------------------------------------------------------------
 
-ps   <- readRDS(file.path(BASE_DIR, "data/processed/ps_filt_5vs6.rds"))
-clin <- read.csv(file.path(BASE_DIR, "data/processed/clinical_all.csv"),
-                 check.names = FALSE, na.strings = "")
-
+ps <- readRDS(file.path(BASE_DIR, "data/processed/ps_filt_5vs6.rds"))
 cat("Loaded phyloseq:", nsamples(ps), "samples,", ntaxa(ps), "ASVs\n")
 
-# --- Determine remission status per patient ----------------------------------
-
-# MetS status at PRE (group 5) and POST (group 6) for the complete pairs
-pre  <- clin[clin[["group iga"]] == "5", c("pz", "MetS")]
-post <- clin[clin[["group iga"]] == "6", c("pz", "MetS")]
-
-# Only patients with metagenomics at both timepoints (same filter as script 03)
-complete_pz <- intersect(pre$pz, post$pz)
-pre  <- pre[pre$pz  %in% complete_pz, ]
-post <- post[post$pz %in% complete_pz, ]
-
-merged <- merge(pre, post, by = "pz", suffixes = c("_pre", "_post"))
-
-# Three-way classification
-merged$remission <- ifelse(
-  merged$MetS_pre == 1 & merged$MetS_post == 0, "remitter",
-  ifelse(
-    merged$MetS_pre == 1 & merged$MetS_post == 1, "non_remitter",
-    NA  # MetS- at PRE: excluded
-  )
-)
-
-cat("\nRemission status (complete pairs):\n")
-print(table(merged$remission, useNA = "ifany"))
-
-# Patients to include in the DESeq2 comparison (exclude MetS- at PRE)
-keep_pz <- merged[!is.na(merged$remission), c("pz", "remission")]
-
-# --- Subset phyloseq to PRE samples of remitters/non-remitters ---------------
+# --- Subset to PRE samples (all 33 complete pairs already in phyloseq) -------
 
 sd <- data.frame(sample_data(ps), check.names = FALSE)
-
-keep <- sd[["group.iga"]] == "5" & sd[["pz"]] %in% keep_pz$pz
+keep <- sd[["group.iga"]] == "5"
 ps_pre <- prune_samples(keep, ps)
 
-cat("\nPRE samples after exclusion of MetS- at PRE:", nsamples(ps_pre), "\n")
+cat("PRE samples (33 complete pairs):", nsamples(ps_pre), "\n")
 
-# Add remission column to sample_data
+# --- Add MetS variable -------------------------------------------------------
+
 sd_pre <- data.frame(sample_data(ps_pre), check.names = FALSE)
-sd_pre <- merge(sd_pre, keep_pz, by = "pz", all.x = TRUE)
-rownames(sd_pre) <- sd_pre$sample_id
-sd_pre$remission <- factor(sd_pre$remission,
-                           levels = c("non_remitter", "remitter"))
+
+# MetS column is already in sample_data (computed in script 02)
+# Recode to factor with MetS- as reference
+sd_pre$MetS_group <- factor(
+  ifelse(sd_pre$MetS == 1, "MetS_pos", "MetS_neg"),
+  levels = c("MetS_neg", "MetS_pos")
+)
 sample_data(ps_pre) <- sample_data(sd_pre)
 
-cat("Remission groups:\n")
-print(table(sample_data(ps_pre)$remission))
+cat("\nMetS distribution at baseline:\n")
+print(table(sd_pre$MetS_group, useNA = "ifany"))
 
 # --- DESeq2 ------------------------------------------------------------------
 
-dds <- phyloseq_to_deseq2(ps_pre, ~ remission)
+dds <- phyloseq_to_deseq2(ps_pre, ~ MetS_group)
 dds <- DESeq(dds, test = "Wald", fitType = "parametric")
 
-# Positive log2FC = enriched in non-remitters (reference = remitter)
+# Positive log2FC = enriched in MetS+ (reference = MetS_neg)
 res <- results(dds,
-               contrast      = c("remission", "non_remitter", "remitter"),
+               contrast      = c("MetS_group", "MetS_pos", "MetS_neg"),
                cooksCutoff   = FALSE,
                pAdjustMethod = "fdr")
 
@@ -109,12 +78,12 @@ sigtab <- as.data.frame(res)
 sigtab <- cbind(sigtab, as.data.frame(tax_table(ps_pre)))
 
 cat("\nSignificant ASVs (FDR < 0.05):", sum(sigtab$padj < 0.05, na.rm = TRUE), "\n")
-cat("  Enriched in non-remitters (log2FC > 0):",
+cat("  Enriched in MetS+  (log2FC > 0):",
     sum(sigtab$padj < 0.05 & sigtab$log2FoldChange > 0, na.rm = TRUE), "\n")
-cat("  Enriched in remitters     (log2FC < 0):",
+cat("  Enriched in MetS-  (log2FC < 0):",
     sum(sigtab$padj < 0.05 & sigtab$log2FoldChange < 0, na.rm = TRUE), "\n\n")
 
-out_xlsx <- file.path(BASE_DIR, "results/deseq2/deseq2_remission_results.xlsx")
+out_xlsx <- file.path(BASE_DIR, "results/deseq2/deseq2_mets_baseline_results.xlsx")
 write.xlsx(sigtab, out_xlsx, rowNames = TRUE, overwrite = TRUE)
 message("Written: ", out_xlsx)
 
@@ -127,13 +96,9 @@ df$ASV    <- rownames(df)
 df$Phylum <- ifelse(is.na(df$Phylum) | df$Phylum == "", "Unassigned", df$Phylum)
 df$Genus  <- ifelse(is.na(df$Genus)  | df$Genus  == "", NA, df$Genus)
 
-# Use raw pvalue on y-axis: padj collapses many ASVs to the same floor value
-# (when padj ≈ 0), losing vertical spread. pvalue preserves ranking.
-# The FDR threshold line is drawn at the pvalue of the least significant
-# hit that still passes FDR < 0.05.
 df$pval_safe <- ifelse(is.na(df$pvalue) | df$pvalue <= 0, .Machine$double.eps, df$pvalue)
 
-sig_mask    <- !is.na(df$padj) & df$padj < alpha
+sig_mask           <- !is.na(df$padj) & df$padj < alpha
 fdr_pval_threshold <- if (any(sig_mask)) max(df$pvalue[sig_mask], na.rm = TRUE) else alpha
 
 df$label <- ifelse(is.na(df$Genus),
@@ -143,9 +108,8 @@ df$label <- ifelse(is.na(df$Genus),
 sig <- subset(df, sig_mask)
 ns  <- df[!sig_mask, ]
 
-sig_lab  <- subset(sig, abs(log2FoldChange) > 1)
-sig_up   <- sig_lab[sig_lab$log2FoldChange > 0, ]
-sig_down <- sig_lab[sig_lab$log2FoldChange < 0, ]
+sig_up   <- sig[sig$log2FoldChange > 0, ]
+sig_down <- sig[sig$log2FoldChange < 0, ]
 sig_up   <- sig_up[order(sig_up$pval_safe,    -abs(sig_up$log2FoldChange)),   ]
 sig_down <- sig_down[order(sig_down$pval_safe, -abs(sig_down$log2FoldChange)), ]
 sig_top  <- rbind(head(sig_up, 10), head(sig_down, 10))
@@ -164,19 +128,17 @@ p <- ggplot() +
                   aes(x = log2FoldChange, y = -log10(pval_safe),
                       label = label, color = Phylum),
                   size = 3, max.overlaps = Inf, show.legend = FALSE) +
-  geom_vline(xintercept = 0,  linetype = "dashed") +
-  geom_vline(xintercept =  1, linetype = "dotted", color = "grey40") +
-  geom_vline(xintercept = -1, linetype = "dotted", color = "grey40") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
   geom_hline(yintercept = -log10(fdr_pval_threshold), linetype = "dashed") +
   scale_color_manual(values = phylum_pal) +
   coord_cartesian(xlim = c(-15, 15),
                   ylim = c(0, max(-log10(df$pval_safe), na.rm = TRUE) * 1.05)) +
   theme_bw(base_size = 14) +
   theme(legend.position = "bottom") +
-  labs(x     = "log2 fold change (non-remitters vs remitters)",
+  labs(x     = "log2 fold change (MetS+ vs MetS-)",
        y     = "-log10 p-value (FDR threshold line at padj = 0.05)",
        color = "Phylum")
 
-out_png <- file.path(BASE_DIR, "results/deseq2/volcano_remission.png")
+out_png <- file.path(BASE_DIR, "results/deseq2/volcano_mets_baseline.png")
 ggsave(out_png, p, width = 30, height = 25, units = "cm", dpi = 300)
 message("Written: ", out_png)

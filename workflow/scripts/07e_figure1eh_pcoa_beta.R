@@ -91,9 +91,9 @@ run_pcoa <- function(d, dist_label, out_path) {
          title = dist_label) +
     theme_beta() +
     theme(
-      legend.position   = c(0.15, 0.13),
-      legend.text       = element_text(size = 3.5),
-      legend.key.size   = unit(0.25, "cm"),
+      legend.position   = c(0.85, 0.13),
+      legend.text       = element_text(size = 2.4),
+      legend.key.size   = unit(0.15, "cm"),
       legend.background = element_rect(fill = "white", colour = "#ddd", linewidth = 0.2),
       plot.title        = element_text(size = 4, face = "plain", colour = "#555",
                                        margin = margin(b = 2))
@@ -160,7 +160,7 @@ run_paired <- function(d, dist_label, out_path) {
     labs(x = NULL, y = sprintf("Distance to PRE centroid\n(%s)", dist_label)) +
     theme_beta() +
     theme(legend.position = "none",
-          axis.title.y    = element_text(size = 3))
+          axis.title.y = element_text(size = 3.5))
 
   ggsave(out_path, p, width = FIG_W, height = FIG_H, units = "in", dpi = 300)
   cat(sprintf("Written: %s\n", out_path))

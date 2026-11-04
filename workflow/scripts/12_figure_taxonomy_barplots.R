@@ -75,29 +75,15 @@ if (comparison == "5vs6") {
 
 } else if (comparison == "remission") {
 
-  # PRE samples only; assign remission label per patient using MetS at both
-  # timepoints. Patients with MetS == 0 at PRE are excluded (not informative
-  # for remission: they had nothing to remit).
-  pre  <- clin[clin[["group iga"]] == "5", c("pz", "MetS")]
-  post <- clin[clin[["group iga"]] == "6", c("pz", "MetS")]
-  complete_pz <- intersect(pre$pz, post$pz)
+  # PRE samples only; remission label already in sample_data (added by
+  # 04_phyloseq_bariatric_filter.R). Exclude mets_neg (MetS==0 at PRE),
+  # who had nothing to remit.
+  sd_df  <- data.frame(sample_data(ps), check.names = FALSE)
+  keep   <- sd_df[["group.iga"]] == "5" & sd_df[["remission"]] %in% c("remitter", "non_remitter")
+  ps_sub <- prune_samples(keep, ps)
 
-  pre  <- pre[pre$pz  %in% complete_pz, ]
-  post <- post[post$pz %in% complete_pz, ]
-
-  merged <- merge(pre, post, by = "pz", suffixes = c("_pre", "_post"))
-  merged$remission <- ifelse(
-    merged$MetS_pre == 1 & merged$MetS_post == 0, "remitter",
-    ifelse(merged$MetS_pre == 1 & merged$MetS_post == 1, "non_remitter", NA)
-  )
-  keep_pz <- merged[!is.na(merged$remission), c("pz", "remission")]
-
-  sd_df   <- data.frame(sample_data(ps), check.names = FALSE)
-  keep    <- sd_df[["group.iga"]] == "5" & sd_df[["pz"]] %in% keep_pz$pz
-  ps_sub  <- prune_samples(keep, ps)
-
-  sd_sub  <- data.frame(sample_data(ps_sub), check.names = FALSE)
-  sd_sub  <- merge(sd_sub, keep_pz, by = "pz", all.x = TRUE)
+  sd_sub <- data.frame(sample_data(ps_sub), check.names = FALSE)
+  sd_sub$remission <- factor(sd_sub$remission, levels = c("non_remitter", "remitter"))
   rownames(sd_sub) <- sd_sub$sample_id
   sample_data(ps_sub) <- sample_data(sd_sub)
 

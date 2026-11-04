@@ -33,8 +33,9 @@ from statsmodels.stats.multitest import multipletests
 BASE_DIR = "/home/lorenzo/Microbesomics"
 CONFIG   = os.path.join(BASE_DIR, "config/config.yaml")
 DATA     = os.path.join(BASE_DIR, "data/processed/bariatric_clinical_66.csv")
-OUT_CSV  = os.path.join(BASE_DIR, "results/tables/descriptive_baseline.csv")
-OUT_HTML = os.path.join(BASE_DIR, "results/tables/descriptive_baseline.html")
+OUT_CSV      = os.path.join(BASE_DIR, "results/tables/descriptive_baseline.csv")
+OUT_HTML     = os.path.join(BASE_DIR, "results/tables/descriptive_baseline.html")
+OUT_STATS    = os.path.join(BASE_DIR, "results/tables/descriptive_baseline_stats.csv")
 
 os.makedirs(os.path.dirname(OUT_CSV), exist_ok=True)
 
@@ -228,6 +229,12 @@ if "_p_adj" not in result.columns:
 # ---------------------------------------------------------------------------
 result["p-value"] = result["_p_raw"].apply(pval_str)
 result["p-adj"]   = result["_p_adj"].apply(pval_str)
+
+# Save numeric p-values before dropping — consumed by figure1a/b for significance stars
+result[["Section", "Variable", "_p_raw", "_p_adj"]].rename(
+    columns={"_p_raw": "p_value_num", "_p_adj": "p_adj_num"}
+).to_csv(OUT_STATS, index=False)
+print(f"Written: {OUT_STATS}")
 
 result = result.drop(columns=["_p_raw", "_p_adj", "_test"])
 

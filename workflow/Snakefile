@@ -4,6 +4,7 @@ RANKS       = config["barplots"]["ranks"]
 COMPARISONS = config["barplots"]["comparisons"]
 
 SCRIPTS = "workflow/scripts"
+PYTHON  = "/home/lorenzo/anaconda3/envs/python_env/bin/python3"
 
 
 rule all:
@@ -58,7 +59,7 @@ rule import_qiime2:
     output:
         "data/processed/ps_raw.rds"
     shell:
-        "Rscript {SCRIPTS}/01_import_qiime2.R"
+        "Rscript {SCRIPTS}/01_import_qiime2_phyloseq.R"
 
 
 rule preprocess_clinical:
@@ -70,7 +71,7 @@ rule preprocess_clinical:
         "data/processed/clinical_all.csv",
         "data/processed/clinical_all.xlsx"
     shell:
-        "Rscript {SCRIPTS}/02_preprocess_clinical.R"
+        "Rscript {SCRIPTS}/02_clinical_mets_criteria.R"
 
 
 rule preprocess_bariatric:
@@ -82,7 +83,7 @@ rule preprocess_bariatric:
         "data/processed/bariatric_clinical_66.csv",
         "data/processed/bariatric_clinical_66.xlsx"
     shell:
-        "Rscript {SCRIPTS}/03b_preprocess_bariatric.R"
+        "Rscript {SCRIPTS}/03_clinical_bariatric_remission.R"
 
 
 rule figure2a_pcoa_bray:
@@ -97,7 +98,7 @@ rule figure2a_pcoa_bray:
         fig_uuf_d = "results/figures/figure2d_uuf_distances.png",
         csv       = "results/tables/beta_diversity_permanova.csv"
     shell:
-        "Rscript {SCRIPTS}/figure2a_pcoa_bray.R"
+        "Rscript {SCRIPTS}/07e_figure1eh_pcoa_beta.R"
 
 
 rule figure2_combined:
@@ -110,7 +111,7 @@ rule figure2_combined:
     output:
         "results/figures/figure2_combined.png"
     shell:
-        "python3 {SCRIPTS}/figure2_assemble.py"
+        "{PYTHON} {SCRIPTS}/08b_figure2_assemble.py"
 
 
 rule preprocess_beta_diversity:
@@ -122,7 +123,7 @@ rule preprocess_beta_diversity:
     output:
         "data/processed/ps_rarefied_beta.rds"
     shell:
-        "Rscript {SCRIPTS}/preprocess_beta_diversity.R"
+        "Rscript {SCRIPTS}/05a_phyloseq_rarefy_beta.R"
 
 
 rule preprocess_alpha_diversity:
@@ -137,7 +138,7 @@ rule preprocess_alpha_diversity:
     output:
         "data/processed/ps_rarefied_alpha.rds"
     shell:
-        "Rscript {SCRIPTS}/preprocess_alpha_diversity.R"
+        "Rscript {SCRIPTS}/05b_phyloseq_rarefy_alpha.R"
 
 
 rule figure_alpha_diversity:
@@ -148,19 +149,22 @@ rule figure_alpha_diversity:
     output:
         "results/figures/figure_alpha_diversity.png"
     shell:
-        "Rscript {SCRIPTS}/figure_alpha_diversity.R"
+        "Rscript {SCRIPTS}/08a_figure_alpha_diversity.R"
 
 
 rule filter_5vs6:
     # Subsets phyloseq to the 33 complete bariatric surgery pairs and applies
     # ASV feature filtering (count + prevalence + variance).
+    # Depends on bariatric_clinical_66.csv (from preprocess_bariatric) to attach
+    # the remission label to sample_data — so DESeq2 scripts can read it directly.
     input:
-        ps      = "data/processed/ps_raw.rds",
-        clinical = "data/processed/clinical_all.csv"
+        ps       = "data/processed/ps_raw.rds",
+        clinical = "data/processed/clinical_all.csv",
+        bari     = "data/processed/bariatric_clinical_66.csv"
     output:
         "data/processed/ps_filt_5vs6.rds"
     shell:
-        "Rscript {SCRIPTS}/03_filter_5vs6.R"
+        "Rscript {SCRIPTS}/04_phyloseq_bariatric_filter.R"
 
 
 # -----------------------------------------------------------------------------
@@ -169,24 +173,28 @@ rule filter_5vs6:
 
 rule figure1a:
     # Ridge plot PRE vs POST — anthropometrics, vitals, body composition, liver (Block A, 11 vars).
+    # Reads p-adj from descriptive_baseline.csv instead of recomputing Wilcoxon + BH.
     input:
         data   = "data/processed/bariatric_clinical_66.csv",
+        stats  = "results/tables/descriptive_baseline_stats.csv",
         config = "config/config.yaml"
     output:
         "results/figures/figure1a.png"
     shell:
-        "python3 {SCRIPTS}/figure1a.py"
+        "{PYTHON} {SCRIPTS}/07a_figure1a_ridge_anthropometrics.py"
 
 
 rule figure1b:
     # Ridge plot PRE vs POST — glycaemia, OGTT, lipids (Block B, 12 vars).
+    # Reads p-adj from descriptive_baseline.csv instead of recomputing Wilcoxon + BH.
     input:
         data   = "data/processed/bariatric_clinical_66.csv",
+        stats  = "results/tables/descriptive_baseline_stats.csv",
         config = "config/config.yaml"
     output:
         "results/figures/figure1b.png"
     shell:
-        "python3 {SCRIPTS}/figure1b.py"
+        "{PYTHON} {SCRIPTS}/07b_figure1b_ridge_glycolipids.py"
 
 
 rule figure1c:
@@ -197,7 +205,7 @@ rule figure1c:
     output:
         "results/figures/figure1c.png"
     shell:
-        "python3 {SCRIPTS}/figure1c.py"
+        "{PYTHON} {SCRIPTS}/07c_figure1c_raincloud_weight.py"
 
 
 rule figure1d_mets_alluvial:
@@ -207,20 +215,49 @@ rule figure1d_mets_alluvial:
     output:
         "results/figures/figure1d_mets_alluvial.png"
     shell:
-        "Rscript {SCRIPTS}/figure1d_mets_alluvial.R"
+        "Rscript {SCRIPTS}/07d_figure1d_alluvial_mets.R"
+
+
+rule figure1i_composition:
+    # Stacked barplot of relative Phylum abundance (top 10 + Other), one bar per
+    # sample, PRE and POST as separate facets. Samples ordered by Firmicutes PRE
+    # abundance (descending); same pz order applied to POST for visual comparison.
+    input:
+        ps = "data/processed/ps_filt_5vs6.rds"
+    output:
+        "results/figures/figure1i_composition.png"
+    shell:
+        "Rscript {SCRIPTS}/07f_figure1i_phylum_barplot.R"
+
+
+rule figure1j_phylum_clr:
+    # Diverging barplot of CLR-transformed PRE→POST change for all tested phyla.
+    # CLR uses a pseudocount = min_nonzero/2 to handle phyla with structural zeros.
+    # Statistics: paired t-test on CLR values, BH correction.
+    input:
+        ps = "data/processed/ps_filt_5vs6.rds"
+    output:
+        "results/figures/figure1j_phylum_clr.png"
+    shell:
+        "Rscript {SCRIPTS}/07g_figure1j_phylum_clr.R"
 
 
 rule figure1_combined:
-    # Assembles the four clinical panels (ridge plots + alluvial) into Figure 1.
+    # Assembles three rows into Figure 1:
+    #   Row 1 (a-d): clinical ridge plots + MetS alluvial
+    #   Row 2 (e-h): PCoA and beta-diversity distance panels
+    #   Row 3 (i-j): phylum composition barplot + CLR diverging barplot
     input:
         a = "results/figures/figure1a.png",
         b = "results/figures/figure1b.png",
         c = "results/figures/figure1c.png",
-        d = "results/figures/figure1d_mets_alluvial.png"
+        d = "results/figures/figure1d_mets_alluvial.png",
+        i = "results/figures/figure1i_composition.png",
+        j = "results/figures/figure1j_phylum_clr.png"
     output:
         "results/figures/figure1_combined.png"
     shell:
-        "python3 {SCRIPTS}/figure1_assemble.py"
+        "{PYTHON} {SCRIPTS}/07h_figure1_assemble.py"
 
 
 rule rarefaction_curves:
@@ -231,7 +268,7 @@ rule rarefaction_curves:
     output:
         "results/figures/qc/rarefaction_curves.png"
     shell:
-        "Rscript {SCRIPTS}/rarefaction_curves.R"
+        "Rscript {SCRIPTS}/05c_qc_rarefaction_curves.R"
 
 
 rule figure_lfc_clinical:
@@ -242,7 +279,7 @@ rule figure_lfc_clinical:
     output:
         "results/figures/figure_lfc_clinical.png"
     shell:
-        "python3 {SCRIPTS}/figure_lfc_clinical.py"
+        "{PYTHON} {SCRIPTS}/08c_figure_lfc_clinical.py"
 
 
 rule descriptive_clinical:
@@ -251,10 +288,11 @@ rule descriptive_clinical:
         data   = "data/processed/bariatric_clinical_66.csv",
         config = "config/config.yaml"
     output:
-        csv  = "results/tables/descriptive_baseline.csv",
-        html = "results/tables/descriptive_baseline.html"
+        csv   = "results/tables/descriptive_baseline.csv",
+        stats = "results/tables/descriptive_baseline_stats.csv",
+        html  = "results/tables/descriptive_baseline.html"
     shell:
-        "python3 {SCRIPTS}/descriptive_clinical.py"
+        "{PYTHON} {SCRIPTS}/06a_clinical_stats_pre_post.py"
 
 
 rule descriptive_remission_stratified:
@@ -267,7 +305,7 @@ rule descriptive_remission_stratified:
         csv  = "results/tables/descriptive_remission_stratified.csv",
         html = "results/tables/descriptive_remission_stratified.html"
     shell:
-        "python3 {SCRIPTS}/descriptive_remission_stratified.py"
+        "{PYTHON} {SCRIPTS}/06b_clinical_stats_remission.py"
 
 
 rule descriptive_mets_stratified:
@@ -280,7 +318,7 @@ rule descriptive_mets_stratified:
         csv  = "results/tables/descriptive_mets_stratified.csv",
         html = "results/tables/descriptive_mets_stratified.html"
     shell:
-        "python3 {SCRIPTS}/descriptive_mets_stratified.py"
+        "{PYTHON} {SCRIPTS}/06c_clinical_stats_mets.py"
 
 
 # -----------------------------------------------------------------------------
@@ -295,43 +333,43 @@ rule deseq2_5vs6:
         xlsx    = "results/deseq2/deseq2_5vs6_results.xlsx",
         volcano = "results/deseq2/volcano_5vs6.png"
     shell:
-        "Rscript {SCRIPTS}/04_deseq2_5vs6.R"
+        "Rscript {SCRIPTS}/09_deseq2_surgery_effect.R"
 
 
 rule deseq2_remission:
     # MetS remitters vs non-remitters at baseline (PRE).
+    # remission label read directly from ps sample_data (added by filter_5vs6).
     input:
-        ps       = "data/processed/ps_filt_5vs6.rds",
-        clinical = "data/processed/clinical_all.csv"
+        ps = "data/processed/ps_filt_5vs6.rds"
     output:
         xlsx    = "results/deseq2/deseq2_remission_results.xlsx",
         volcano = "results/deseq2/volcano_remission.png"
     shell:
-        "Rscript {SCRIPTS}/05_deseq2_remission.R"
+        "Rscript {SCRIPTS}/10a_deseq2_remission_baseline.R"
 
 
 rule deseq2_mets_baseline:
     # MetS+ vs MetS- at baseline (PRE).
+    # MetS column read directly from ps sample_data.
     input:
-        ps       = "data/processed/ps_filt_5vs6.rds",
-        clinical = "data/processed/clinical_all.csv"
+        ps = "data/processed/ps_filt_5vs6.rds"
     output:
         xlsx    = "results/deseq2/deseq2_mets_baseline_results.xlsx",
         volcano = "results/deseq2/volcano_mets_baseline.png"
     shell:
-        "Rscript {SCRIPTS}/06_deseq2_mets_baseline.R"
+        "Rscript {SCRIPTS}/10b_deseq2_mets_baseline.R"
 
 
 rule deseq2_remitters_vs_metsneg:
     # MetS+ remitters vs MetS- subjects at baseline (PRE).
+    # remission label read directly from ps sample_data.
     input:
-        ps       = "data/processed/ps_filt_5vs6.rds",
-        clinical = "data/processed/clinical_all.csv"
+        ps = "data/processed/ps_filt_5vs6.rds"
     output:
         xlsx    = "results/deseq2/deseq2_remitters_vs_metsneg_results.xlsx",
         volcano = "results/deseq2/volcano_remitters_vs_metsneg.png"
     shell:
-        "Rscript {SCRIPTS}/08_deseq2_remitters_vs_metsneg.R"
+        "Rscript {SCRIPTS}/10c_deseq2_remitters_vs_metsneg.R"
 
 
 # -----------------------------------------------------------------------------
@@ -348,7 +386,7 @@ rule heatmap_intersection:
     output:
         "results/deseq2/heatmap_intersection.png"
     shell:
-        "Rscript {SCRIPTS}/07_heatmap_intersection.R"
+        "Rscript {SCRIPTS}/11_figure_deseq2_heatmap.R"
 
 
 rule taxonomy_barplots:
@@ -368,7 +406,7 @@ rule taxonomy_barplots:
         dpi        = config["barplots"]["dpi"]
     shell:
         """
-        Rscript {SCRIPTS}/taxonomy_barplots.R \
+        Rscript {SCRIPTS}/12_figure_taxonomy_barplots.R \
             --rank       {params.rank} \
             --comparison {params.comparison} \
             --top_n      {params.top_n} \
@@ -411,4 +449,4 @@ rule html_report:
     output:
         "results/report/microbesomics_report.html"
     shell:
-        "python3 {SCRIPTS}/make_html_report.py --out {output}"
+        "{PYTHON} {SCRIPTS}/13_report_html.py --out {output}"

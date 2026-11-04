@@ -37,47 +37,31 @@ dir.create(file.path(BASE_DIR, "results/deseq2"), recursive = TRUE, showWarnings
 
 # --- Load data ---------------------------------------------------------------
 
-ps   <- readRDS(file.path(BASE_DIR, "data/processed/ps_filt_5vs6.rds"))
-clin <- read.csv(file.path(BASE_DIR, "data/processed/clinical_all.csv"),
-                 check.names = FALSE, na.strings = "")
-
+ps <- readRDS(file.path(BASE_DIR, "data/processed/ps_filt_5vs6.rds"))
 cat("Loaded phyloseq:", nsamples(ps), "samples,", ntaxa(ps), "ASVs\n")
 
-# --- Classify patients -------------------------------------------------------
-
-pre  <- clin[clin[["group iga"]] == "5", c("pz", "MetS")]
-post <- clin[clin[["group iga"]] == "6", c("pz", "MetS")]
-
-complete_pz <- intersect(pre$pz, post$pz)
-pre  <- pre[pre$pz  %in% complete_pz, ]
-post <- post[post$pz %in% complete_pz, ]
-
-merged <- merge(pre, post, by = "pz", suffixes = c("_pre", "_post"))
-
-merged$comp_group <- ifelse(
-  merged$MetS_pre == 1 & merged$MetS_post == 0, "remitter",
-  ifelse(merged$MetS_pre == 0, "mets_neg", NA)  # non-remitters → excluded
-)
-
-cat("\nGroup classification:\n")
-print(table(merged$comp_group, useNA = "ifany"))
-
-keep_pz <- merged[!is.na(merged$comp_group), c("pz", "comp_group")]
-
-# --- Subset phyloseq to PRE samples of the two groups ------------------------
+# --- Classify patients using remission from sample_data ----------------------
+# remission column added by 04_phyloseq_bariatric_filter.R:
+#   remitter     = MetS+ at PRE, MetS- at POST
+#   mets_neg     = MetS- at PRE
+#   non_remitter = excluded from this comparison
 
 sd <- data.frame(sample_data(ps), check.names = FALSE)
-keep <- sd[["group.iga"]] == "5" & sd[["pz"]] %in% keep_pz$pz
+
+# Keep PRE samples of remitters and mets_neg only
+keep   <- sd[["group.iga"]] == "5" & sd[["remission"]] %in% c("remitter", "mets_neg")
 ps_pre <- prune_samples(keep, ps)
 
 cat("\nSamples in comparison:", nsamples(ps_pre), "\n")
 
 sd_pre <- data.frame(sample_data(ps_pre), check.names = FALSE)
-sd_pre <- merge(sd_pre, keep_pz, by = "pz", all.x = TRUE)
-rownames(sd_pre) <- sd_pre$sample_id
 
 # mets_neg as reference: positive log2FC = enriched in remitters
-sd_pre$comp_group <- factor(sd_pre$comp_group, levels = c("mets_neg", "remitter"))
+sd_pre$comp_group <- factor(
+  ifelse(sd_pre$remission == "remitter", "remitter", "mets_neg"),
+  levels = c("mets_neg", "remitter")
+)
+rownames(sd_pre) <- sd_pre$sample_id
 sample_data(ps_pre) <- sample_data(sd_pre)
 
 cat("Group sizes:\n")

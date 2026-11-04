@@ -14,18 +14,17 @@ import os
 import yaml
 import numpy as np
 import pandas as pd
-from scipy import stats
 from scipy.stats import gaussian_kde
-from statsmodels.stats.multitest import multipletests
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
-BASE_DIR = "/home/lorenzo/Microbesomics"
-CONFIG   = os.path.join(BASE_DIR, "config/config.yaml")
-DATA     = os.path.join(BASE_DIR, "data/processed/bariatric_clinical_66.csv")
-OUT      = os.path.join(BASE_DIR, "results/figures/figure1a.png")
+BASE_DIR  = "/home/lorenzo/Microbesomics"
+CONFIG    = os.path.join(BASE_DIR, "config/config.yaml")
+DATA      = os.path.join(BASE_DIR, "data/processed/bariatric_clinical_66.csv")
+STATS_CSV = os.path.join(BASE_DIR, "results/tables/descriptive_baseline_stats.csv")
+OUT       = os.path.join(BASE_DIR, "results/figures/figure1a.png")
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 
@@ -60,11 +59,13 @@ pre  = pre.loc[shared]
 post = post.loc[shared]
 
 # ---------------------------------------------------------------------------
-# Collect variables for this panel + Wilcoxon across ALL vars (BH together)
+# Load pre-computed p-adj from descriptive_baseline.csv (produced by 06a)
 # ---------------------------------------------------------------------------
-var_list = []
-pval_raw = {}
+stats_df  = pd.read_csv(STATS_CSV)
+padj_dict = dict(zip(stats_df["Variable"], stats_df["p_adj_num"]))
 
+# Collect block A variables in config order
+var_list = []
 for section, variables in cfg["clinical_descriptive"].items():
     for var, meta in variables.items():
         if isinstance(meta, dict):
@@ -76,27 +77,7 @@ for section, variables in cfg["clinical_descriptive"].items():
             continue
         if var in EXCLUDE or var not in pre.columns:
             continue
-        both = pd.DataFrame({"pre": pre[var], "post": post[var]}).dropna()
-        if len(both) < 5:
-            continue
-        try:
-            d = both["post"] - both["pre"]
-            _, p = stats.wilcoxon(both["pre"], both["post"], alternative="two-sided") \
-                   if not (d == 0).all() else (None, np.nan)
-        except Exception:
-            p = np.nan
         var_list.append((section, var))
-        pval_raw[var] = p
-
-# BH over all continuous vars (same correction as combined figure)
-vars_ordered = [v for _, v in var_list]
-pvals = np.array([pval_raw[v] for v in vars_ordered])
-valid = ~np.isnan(pvals)
-padj  = np.full(len(pvals), np.nan)
-if valid.sum() > 1:
-    _, padj_v, _, _ = multipletests(pvals[valid], method="fdr_bh")
-    padj[valid] = padj_v
-padj_dict = {v: padj[i] for i, v in enumerate(vars_ordered)}
 
 # keep only block A vars, preserving config order
 panel_vars = [(s, v) for s, v in var_list if v not in BLOCK_B]
@@ -180,7 +161,7 @@ ax.set_xlim(-x_lim - 0.1, x_lim + 0.4)
 ax.set_ylim(-0.4, (n_vars - 1) * spacing + kde_h + 0.3)
 ax.set_yticks(y_ticks)
 ax.set_yticklabels(y_labels_list, fontsize=3.5)
-ax.set_xlabel("PRE SD units", fontsize=3.5)
+ax.set_xlabel("z-score", fontsize=3.5)
 ax.spines[["top", "right", "left"]].set_visible(False)
 ax.spines["bottom"].set_linewidth(0.4)
 ax.spines["bottom"].set_color("#888")
@@ -189,8 +170,9 @@ ax.tick_params(axis="x", labelsize=3.5, width=0.4, color="#888")
 
 patch_pre  = mpatches.Patch(color=COL_PRE,  alpha=0.7, label="PRE")
 patch_post = mpatches.Patch(color=COL_POST, alpha=0.7, label="POST")
-ax.legend(handles=[patch_pre, patch_post], fontsize=3.5, loc="lower right",
-          framealpha=0.9, edgecolor="#ddd", handlelength=0.8, borderpad=0.3)
+ax.legend(handles=[patch_pre, patch_post], fontsize=2.8, loc="upper right",
+          framealpha=0.9, edgecolor="#ddd", handlelength=0.6, borderpad=0.25,
+          handletextpad=0.3, labelspacing=0.2)
 
 plt.tight_layout()
 plt.savefig(OUT, dpi=300, bbox_inches="tight")
