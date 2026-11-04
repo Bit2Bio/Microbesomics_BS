@@ -464,6 +464,24 @@ html = f"""<!DOCTYPE html>
   </div>
 
   <!-- ======================================================= -->
+  <!-- MetS Classification                                      -->
+  <!-- ======================================================= -->
+  <div class="card">
+    <h2>MetS Classification — NCEP ATP III (AHA/NHLBI 2005 revision)</h2>
+    <p class="meta" style="margin-bottom:14px;">
+      Positive = ≥ 3 of 5 criteria met. Waist thresholds: ATP III 2001 revised 2005.
+      Glucose threshold 100 mg/dL (lowered from 110 in 2005 revision).
+    </p>
+    <div class="table-scroll">
+      {df_to_table(mets_df, "tbl-mets")}
+    </div>
+    <h3 style="margin-top:20px;">Implementation notes</h3>
+    <ul class="notes">
+      {''.join(f"<li>{n}</li>" for n in NOTES)}
+    </ul>
+  </div>
+
+  <!-- ======================================================= -->
   <!-- QC — Rarefaction curves                                  -->
   <!-- ======================================================= -->
   <div class="card">
@@ -564,25 +582,7 @@ html = f"""<!DOCTYPE html>
   </div>
 
   <!-- ======================================================= -->
-  <!-- 2. MetS Classification                                   -->
-  <!-- ======================================================= -->
-  <div class="card">
-    <h2>2. MetS Classification — NCEP ATP III (AHA/NHLBI 2005 revision)</h2>
-    <p class="meta" style="margin-bottom:14px;">
-      Positive = ≥ 3 of 5 criteria met. Waist thresholds: ATP III 2001 revised 2005.
-      Glucose threshold 100 mg/dL (lowered from 110 in 2005 revision).
-    </p>
-    <div class="table-scroll">
-      {df_to_table(mets_df, "tbl-mets")}
-    </div>
-    <h3 style="margin-top:20px;">Implementation notes</h3>
-    <ul class="notes">
-      {''.join(f"<li>{n}</li>" for n in NOTES)}
-    </ul>
-  </div>
-
-  <!-- ======================================================= -->
-  <!-- 3. Volcano plots                                         -->
+  <!-- Volcano plots                                            -->
   <!-- ======================================================= -->
   <div class="card">
     <h2>3. Differential abundance — DESeq2 volcano plots</h2>
